@@ -57,6 +57,36 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define RFID_CS_Pin GPIO_PIN_3
+#define RFID_CS_GPIO_Port GPIOE
+#define RFID_RST_Pin GPIO_PIN_4
+#define RFID_RST_GPIO_Port GPIOE
+#define HX711_DT_Pin GPIO_PIN_0
+#define HX711_DT_GPIO_Port GPIOC
+#define HX711_SCK_Pin GPIO_PIN_1
+#define HX711_SCK_GPIO_Port GPIOC
+#define BTN_B1_Pin GPIO_PIN_0
+#define BTN_B1_GPIO_Port GPIOA
+#define DIGIT1_Pin GPIO_PIN_8
+#define DIGIT1_GPIO_Port GPIOD
+#define DIGIT2_Pin GPIO_PIN_9
+#define DIGIT2_GPIO_Port GPIOD
+#define SEG_A_Pin GPIO_PIN_0
+#define SEG_A_GPIO_Port GPIOD
+#define SEG_B_Pin GPIO_PIN_1
+#define SEG_B_GPIO_Port GPIOD
+#define SEG_C_Pin GPIO_PIN_2
+#define SEG_C_GPIO_Port GPIOD
+#define SEG_D_Pin GPIO_PIN_3
+#define SEG_D_GPIO_Port GPIOD
+#define SEG_E_Pin GPIO_PIN_4
+#define SEG_E_GPIO_Port GPIOD
+#define SEG_F_Pin GPIO_PIN_5
+#define SEG_F_GPIO_Port GPIOD
+#define SEG_G_Pin GPIO_PIN_6
+#define SEG_G_GPIO_Port GPIOD
+#define SEG_DP_Pin GPIO_PIN_7
+#define SEG_DP_GPIO_Port GPIOD
 
 /* USER CODE BEGIN Private defines */
 
