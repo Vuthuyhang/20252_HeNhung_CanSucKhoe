@@ -35,17 +35,48 @@ int32_t HX711_ReadRaw(void)
 	}
 
 	//doc 24 bit du lieu
+	for(uint_8 i = 0; i<24; i++){
+		HAL_GPIO_WritePin(SCK_PORT, SCK_PIN, GPIO_PIN_SET);
+		microDelay(1);
+		data <<= 1;
+		HAL_GPIO_WritePin(SCK_PORT, SCK_PIN, GPIO_PIN_RESET);
+		microDelay(1);
+		if(HAL_GPIO_ReadPin(DT_PORT, DT_PIN) == GPIO_PIN_SET){
+			data++;
+		}
+	}
 
-    return 0;
+	//chuyen doi so am
+	data ^= 0x800000;
+
+	//clock thu 25
+
+	HAL_GPIO_WritePin(SCK_PORT, SCK_PIN, GPIO_PIN_SET);
+	microDelay(1);
+	HAL_GPIO_WritePin(SCK_PORT, SCK_PIN, GPIO_PIN_RESET);
+	microDelay(1);
+
+    return (int32_t)data;
 }
-
+//dat gia tri tare
 void HX711_Tare(void)
 {
+	int64_t sum = 0;
+	for(uint8_t i = 0; i < 20; i++){
+		sum += HX711_ReadRaw();
+	}
 
+	tare = (int32_t)(sum/20);
 }
 
 float HX711_GetWeight(void)
 {
-    return 0;
+	int64_t sum = 0;
+	for(uint8_t i = 0; i < 20; i++){
+		sum += HX711_ReadRaw();
+	}
+	int32_t average = (int32_t)(sum/20);
+
+    return (average - tare) * scale;
 }
 

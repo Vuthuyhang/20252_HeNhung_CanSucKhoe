@@ -21,7 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "common.h"
+#include "hx711.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -106,6 +107,8 @@ int main(void)
   MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
 
+  HAL_TIM_Base_Start(&htim2); //khởi động timer 2 để dùng microDelay
+  HX7111_Init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -115,6 +118,9 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	float weight = HX711_GetWeight();
+
+	HAL_Delay(200);
   }
   /* USER CODE END 3 */
 }
