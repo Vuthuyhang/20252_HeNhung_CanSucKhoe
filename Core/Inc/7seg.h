@@ -3,7 +3,7 @@
 
 #include "common.h"
 
-void Set7SegDisplayValue(int value);
+void Set7SegDisplay(float weightKg, WeightUnit unit);
 
 void Run7SegDisplay(void);
 

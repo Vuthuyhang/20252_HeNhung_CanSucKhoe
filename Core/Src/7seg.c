@@ -1,13 +1,10 @@
-
- // Điều khiển LED 7 đoạn 2 chữ số
-
-
 #include "7seg.h"
 #include "main.h"
 
 static int DisplayValue = 0;
 static int pos = 0;
 
+static uint8_t ShowDecimalPoint = 0;
 /*
  * bit0 -> A
  * bit1 -> B
@@ -32,17 +29,58 @@ static const uint8_t Mask[10] =
     0x6F    //9
 };
 
-void Set7SegDisplayValue(int value)
+void Set7SegDisplay(float weightKg, WeightUnit unit)
 {
-    if(value < 0)
-        value = 0;
+    int value = 0;
 
-    if(value > 99)
+    switch (unit)
+    {
+        case UNIT_KG:
+            /*
+             * 5.63 kg -> 56 -> hiển thị 5.6
+             */
+            value = (int)(weightKg * 10.0f + 0.5f);
+            ShowDecimalPoint = 1;
+            break;
+
+        case UNIT_G:
+            /*
+             * 5.63 kg = 5630 g.
+             * LED hiện 56, hiểu là 56 × 100 g.
+             */
+            value = (int)(weightKg * 10.0f + 0.5f);
+            ShowDecimalPoint = 0;
+            break;
+
+        case UNIT_LBS:
+            /*
+             * LED hiện số lbs làm tròn.
+             */
+            value = (int)(
+                weightKg * 2.20462262f + 0.5f
+            );
+
+            ShowDecimalPoint = 0;
+            break;
+
+        default:
+            value = 0;
+            ShowDecimalPoint = 0;
+            break;
+    }
+
+    if (value < 0)
+    {
+        value = 0;
+    }
+
+    if (value > 99)
+    {
         value = 99;
+    }
 
     DisplayValue = value;
 }
-
 
 void Run7SegDisplay(void)
 {
@@ -55,10 +93,21 @@ void Run7SegDisplay(void)
     HAL_GPIO_WritePin(DIGIT2_GPIO_Port, DIGIT2_Pin, GPIO_PIN_RESET);
 
     /* Chọn số cần hiển thị */
-    if(pos & 1)
+   if (pos & 1)
+    {
+        /* Chữ số bên phải */
         val = Mask[DisplayValue % 10];
+    }
     else
+    {
+        /* Chữ số bên trái */
         val = Mask[(DisplayValue / 10) % 10];
+
+        if (ShowDecimalPoint)
+        {
+            val |= 0x80;
+        }
+    }
 
     /* Xuất dữ liệu ra các đoạn */
 

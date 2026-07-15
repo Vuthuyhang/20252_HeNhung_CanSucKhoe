@@ -23,6 +23,11 @@
 /* USER CODE BEGIN Includes */
 #include "common.h"
 #include "hx711.h"
+#include "7seg.h"
+#include "ILI9341_STM32_Driver.h"
+#include "ILI9341_GFX.h"
+#include "fonts.h"
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -44,6 +49,8 @@
 RTC_HandleTypeDef hrtc;
 
 SPI_HandleTypeDef hspi4;
+SPI_HandleTypeDef hspi5;
+DMA_HandleTypeDef hdma_spi5_tx;
 
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim6;
@@ -51,23 +58,160 @@ TIM_HandleTypeDef htim6;
 UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
-
+static WeightUnit currentUnit = UNIT_KG;
+static uint8_t previousButtonState = 0;
+static uint32_t lastButtonTick = 0;
+static uint32_t lastDisplayTick = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_RTC_Init(void);
 static void MX_SPI4_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_TIM6_Init(void);
+static void MX_SPI5_Init(void);
 /* USER CODE BEGIN PFP */
-
+static void LCD_DrawStaticUI(void);
+static void LCD_UpdateWeight(float weightKg, WeightUnit unit);
+static void LCD_UpdateStatus(const char *status);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+/*
+ * Vẽ các nội dung cố định trên LCD một lần khi khởi động.
+ */
+static void LCD_DrawStaticUI(void)
+{
+  ILI9341_DrawText(
+      "ELECTRONIC SCALE",
+      FONT3,
+      55,
+      25,
+      BLUE,
+      WHITE
+  );
+
+  ILI9341_DrawText(
+      "Weight:",
+      FONT3,
+      25,
+      95,
+      BLACK,
+      WHITE
+  );
+
+  ILI9341_DrawText(
+      "Status:",
+      FONT3,
+      25,
+      160,
+      BLACK,
+      WHITE
+  );
+
+  ILI9341_DrawText(
+      "B1: kg / g / lbs",
+      FONT2,
+      85,
+      210,
+      DARKGREY,
+      WHITE
+  );
+}
+
+/*
+ * Hiển thị khối lượng theo đơn vị hiện tại.
+ * Không dùng định dạng %f để tránh phải bật hỗ trợ printf float.
+ */
+static void LCD_UpdateWeight(float weightKg, WeightUnit unit)
+{
+  char text[24];
+  int32_t scaledValue;
+
+  if (weightKg < 0.0f)
+  {
+    weightKg = 0.0f;
+  }
+
+  if (unit == UNIT_G)
+  {
+    scaledValue = (int32_t)(weightKg * 1000.0f + 0.5f);
+    snprintf(text, sizeof(text), "%ld g", (long)scaledValue);
+  }
+  else if (unit == UNIT_LBS)
+  {
+    scaledValue = (int32_t)(weightKg * 2.20462262f * 100.0f + 0.5f);
+    snprintf(
+        text,
+        sizeof(text),
+        "%ld.%02ld lbs",
+        (long)(scaledValue / 100),
+        (long)(scaledValue % 100)
+    );
+  }
+  else
+  {
+    scaledValue = (int32_t)(weightKg * 100.0f + 0.5f);
+    snprintf(
+        text,
+        sizeof(text),
+        "%ld.%02ld kg",
+        (long)(scaledValue / 100),
+        (long)(scaledValue % 100)
+    );
+  }
+
+  ILI9341_DrawFilledRectangleCoord(
+      120,
+      80,
+      310,
+      130,
+      WHITE
+  );
+
+  ILI9341_DrawText(
+      text,
+      FONT4,
+      125,
+      95,
+      RED,
+      WHITE
+  );
+}
+
+/*
+ * Cập nhật trạng thái cân.
+ */
+static void LCD_UpdateStatus(const char *status)
+{
+  if (status == NULL)
+  {
+    status = "";
+  }
+
+  ILI9341_DrawFilledRectangleCoord(
+      120,
+      145,
+      310,
+      195,
+      WHITE
+  );
+
+  ILI9341_DrawText(
+      status,
+      FONT3,
+      125,
+      160,
+      DARKGREEN,
+      WHITE
+  );
+}
 
 /* USER CODE END 0 */
 
@@ -100,15 +244,28 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_RTC_Init();
   MX_SPI4_Init();
   MX_TIM2_Init();
   MX_USART1_UART_Init();
   MX_TIM6_Init();
+  MX_SPI5_Init();
   /* USER CODE BEGIN 2 */
 
-  HAL_TIM_Base_Start(&htim2); //khởi động timer 2 để dùng microDelay
-  HX7111_Init();
+  HAL_TIM_Base_Start(&htim2);      // Timer 2 dùng cho microDelay của HX711
+  HAL_TIM_Base_Start_IT(&htim6);   // Timer 6 dùng để quét LED 7 đoạn
+
+  HX711_Init();
+  Set7SegDisplay(0.0f, currentUnit);
+
+  ILI9341_Init();
+  ILI9341_SetRotation(SCREEN_HORIZONTAL_1);
+  ILI9341_FillScreen(WHITE);
+
+  LCD_DrawStaticUI();
+  LCD_UpdateWeight(0.0f, currentUnit);
+  LCD_UpdateStatus("READY");
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -118,9 +275,58 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	float weight = HX711_GetWeight();
+    float weight = HX711_GetWeight();
 
-	HAL_Delay(200);
+    uint8_t currentButtonState =
+        (HAL_GPIO_ReadPin(BTN_B1_GPIO_Port, BTN_B1_Pin) == GPIO_PIN_SET);
+
+    //nhấn B1 để chuyển đổi đơn vị
+    if (currentButtonState &&
+        !previousButtonState &&
+        (HAL_GetTick() - lastButtonTick >= 200U))
+    {
+      lastButtonTick = HAL_GetTick();
+
+      if (currentUnit == UNIT_KG)
+      {
+        currentUnit = UNIT_G;
+      }
+      else if (currentUnit == UNIT_G)
+      {
+        currentUnit = UNIT_LBS;
+      }
+      else
+      {
+        currentUnit = UNIT_KG;
+      }
+    }
+
+    previousButtonState = currentButtonState;
+
+    // Cập nhật hiển thị LED 7 đoạn thường xuyên
+    Set7SegDisplay(weight, currentUnit);
+
+    // Cập nhật hiển thị LCD mỗi 200ms
+    if ((HAL_GetTick() - lastDisplayTick) >= 200U)
+    {
+        lastDisplayTick = HAL_GetTick();
+
+        LCD_UpdateWeight(
+            weight,
+            currentUnit
+        );
+
+        if (weight <= 0.05f)
+        {
+            LCD_UpdateStatus("NO LOAD");
+        }
+        else
+        {
+            LCD_UpdateStatus("MEASURING");
+        }
+    }
+
+    HAL_Delay(20);
   }
   /* USER CODE END 3 */
 }
@@ -252,6 +458,44 @@ static void MX_SPI4_Init(void)
 }
 
 /**
+  * @brief SPI5 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SPI5_Init(void)
+{
+
+  /* USER CODE BEGIN SPI5_Init 0 */
+
+  /* USER CODE END SPI5_Init 0 */
+
+  /* USER CODE BEGIN SPI5_Init 1 */
+
+  /* USER CODE END SPI5_Init 1 */
+  /* SPI5 parameter configuration*/
+  hspi5.Instance = SPI5;
+  hspi5.Init.Mode = SPI_MODE_MASTER;
+  hspi5.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi5.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi5.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi5.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi5.Init.NSS = SPI_NSS_SOFT;
+  hspi5.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi5.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi5.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi5.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi5.Init.CRCPolynomial = 10;
+  if (HAL_SPI_Init(&hspi5) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SPI5_Init 2 */
+
+  /* USER CODE END SPI5_Init 2 */
+
+}
+
+/**
   * @brief TIM2 Initialization Function
   * @param None
   * @retval None
@@ -270,7 +514,7 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 83;
+  htim2.Init.Prescaler = 89;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim2.Init.Period = 65535;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -368,6 +612,22 @@ static void MX_USART1_UART_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA2_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA2_Stream4_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Stream4_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Stream4_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -382,6 +642,7 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
@@ -393,9 +654,15 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(HX711_SCK_GPIO_Port, HX711_SCK_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOD, DIGIT1_Pin|DIGIT2_Pin|SEG_A_Pin|SEG_B_Pin
-                          |SEG_C_Pin|SEG_D_Pin|SEG_E_Pin|SEG_F_Pin
-                          |SEG_G_Pin|SEG_DP_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(LCD_CS_GPIO_Port, LCD_CS_Pin, GPIO_PIN_SET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOD, DIGIT1_Pin|DIGIT2_Pin|LCD_DC_Pin|SEG_A_Pin
+                          |SEG_B_Pin|SEG_C_Pin|SEG_D_Pin|SEG_E_Pin
+                          |SEG_F_Pin|SEG_G_Pin|SEG_DP_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(LCD_RST_GPIO_Port, LCD_RST_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pins : RFID_CS_Pin RFID_RST_Pin */
   GPIO_InitStruct.Pin = RFID_CS_Pin|RFID_RST_Pin;
@@ -417,9 +684,16 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(HX711_SCK_GPIO_Port, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : LCD_CS_Pin */
+  GPIO_InitStruct.Pin = LCD_CS_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  HAL_GPIO_Init(LCD_CS_GPIO_Port, &GPIO_InitStruct);
+
   /*Configure GPIO pin : BTN_B1_Pin */
   GPIO_InitStruct.Pin = BTN_B1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(BTN_B1_GPIO_Port, &GPIO_InitStruct);
 
@@ -434,13 +708,26 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
+  /*Configure GPIO pins : LCD_RST_Pin LCD_DC_Pin */
+  GPIO_InitStruct.Pin = LCD_RST_Pin|LCD_DC_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
-
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  if (htim->Instance == TIM6)
+  {
+    Run7SegDisplay();
+  }
+}
 /* USER CODE END 4 */
 
 /**

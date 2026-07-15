@@ -1,0 +1,15 @@
+../Core/Src/main.c:89:13:LCD_DrawStaticUI	1
+../Core/Src/main.c:132:13:LCD_UpdateWeight	4
+../Core/Src/main.c:191:13:LCD_UpdateStatus	2
+../Core/Src/main.c:222:5:main	8
+../Core/Src/main.c:338:6:SystemClock_Config	4
+../Core/Src/main.c:392:13:MX_RTC_Init	2
+../Core/Src/main.c:427:13:MX_SPI4_Init	2
+../Core/Src/main.c:465:13:MX_SPI5_Init	2
+../Core/Src/main.c:503:13:MX_TIM2_Init	4
+../Core/Src/main.c:548:13:MX_TIM6_Init	3
+../Core/Src/main.c:586:13:MX_USART1_UART_Init	2
+../Core/Src/main.c:617:13:MX_DMA_Init	1
+../Core/Src/main.c:635:13:MX_GPIO_Init	1
+../Core/Src/main.c:724:6:HAL_TIM_PeriodElapsedCallback	2
+../Core/Src/main.c:737:6:Error_Handler	1
