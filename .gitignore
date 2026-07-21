@@ -1,0 +1,8 @@
+/Debug/
+/build/
+*.launch
+*.log
+*.elf
+*.bin
+*.hex
+*.map
