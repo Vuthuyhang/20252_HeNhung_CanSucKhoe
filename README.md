@@ -38,13 +38,148 @@ __Sản phẩm:__
   + **STM32CubeIDE:** môi trường phát triển tích hợp (IDE) dùng để lập trình và debug vi điều khiển STM32.
   + **Hercules:** giao tiếp, kiểm tra và mô phỏng các kết nối nối tiếp (UART)
 
-## SƠ ĐỒ SCHEMATIC
+## SƠ ĐỒ NGUYÊN LÝ
+Hệ thống được xây dựng trên kit **STM32F429I-DISC1** sử dụng vi điều khiển **STM32F429ZIT6** làm bộ điều khiển trung tâm. STM32 có nhiệm vụ thu thập dữ liệu từ cảm biến tải trọng thông qua module HX711, nhận mã định danh từ đầu đọc RFID RC522, xử lý dữ liệu, hiển thị kết quả lên LED 7 đoạn và màn hình LCD TFT tích hợp sẵn trên kit, đồng thời truyền dữ liệu đến máy tính thông qua giao tiếp UART1.
 
-![Untitled Sketch 2_bb](https://github.com/user-attachments/assets/2107ced8-3b4a-4645-872c-b71cd2a6ddce)
+Trong hệ thống, module **HX711** được kết nối với Loadcell để khuếch đại và chuyển đổi tín hiệu từ cảm biến tải trọng thành dữ liệu số. STM32 giao tiếp với HX711 bằng phương pháp **bit-banging** thông qua hai chân GPIO. Đầu đọc **RFID RC522** được kết nối với STM32 qua chuẩn giao tiếp **SPI4** để nhận UID của thẻ RFID. Kết quả đo được hiển thị trực tiếp trên **màn hình LCD ILI9341 tích hợp sẵn trên kit** và **LED 7 đoạn**. Đồng thời, dữ liệu được truyền đến máy tính qua **USART1** để phục vụ việc giám sát bằng phần mềm Hercules.
+
+Ngoài ra, kit STM32F429I-DISC1 còn tích hợp sẵn **nút nhấn B1**, được sử dụng để chuyển đổi đơn vị hiển thị giữa **kg, g và lbs**. Trong khi đó, LED 7 đoạn luôn hiển thị giá trị theo đơn vị kilogram.
+
+## ĐẤU NỐI PHẦN CỨNG
+
+### 1. Kết nối Loadcell với HX711
+
+Loadcell là cảm biến biến dạng (Strain Gauge), hoạt động theo nguyên lý cầu Wheatstone. Khi có tải trọng tác dụng, điện áp vi sai sinh ra có giá trị rất nhỏ (mức mV), không thể đưa trực tiếp vào vi điều khiển. Module HX711 đảm nhiệm việc khuếch đại tín hiệu và chuyển đổi sang dữ liệu số với độ phân giải 24 bit trước khi truyền đến STM32.
+
+| Loadcell | HX711 |
+|----------|-------|
+| E+ | E+ |
+| E− | E− |
+| A+ | A+ |
+| A− | A− |
+
+Trong đó:
+
+- **E+, E−:** cấp nguồn cho cầu Wheatstone bên trong Loadcell.
+- **A+, A−:** truyền tín hiệu điện áp vi sai từ Loadcell đến HX711.
+- HX711 thực hiện khuếch đại tín hiệu và chuyển đổi ADC 24 bit trước khi gửi dữ liệu về STM32.
+
+---
+
+### 2. Kết nối HX711 với STM32
+
+HX711 giao tiếp với STM32 bằng giao thức nối tiếp hai dây tự cài đặt (bit-banging), không sử dụng ngoại vi SPI hay I2C phần cứng. Việc tạo xung clock và đọc dữ liệu được thực hiện hoàn toàn bằng GPIO trong chương trình.
+
+| HX711 | STM32F429I-DISC1 | Định nghĩa trong chương trình |
+|-------|------------------|-------------------------------|
+| SCK | PE0 | `SCK_PORT`, `SCK_PIN` (GPIO Output) |
+| DT | PE1 | `DT_PORT`, `DT_PIN` (GPIO Input) |
+| VCC | 3.3V | |
+| GND | GND | |
+
+Trong quá trình hoạt động:
+
+- STM32 tạo các xung clock trên chân **SCK** để dịch từng bit dữ liệu từ HX711.
+- Sau mỗi xung clock, trạng thái chân **DT** được đọc để thu nhận dữ liệu 24 bit.
+- Độ trễ giữa các xung clock được tạo bằng **TIM2** chạy ở chế độ free-running thông qua hàm `microDelay()`.
+
+---
+
+### 3. Kết nối RC522 với STM32
+
+Đầu đọc RFID RC522 giao tiếp với STM32 thông qua **SPI4**, sử dụng thư viện `tm_stm32f4_mfrc522`. SPI4 được cấu hình với tốc độ khoảng **2.8125 Mbit/s** (Prescaler = 16).
+
+| RC522 | STM32F429I-DISC1 | Ghi chú |
+|-------|------------------|---------|
+| SCK | PE2 | SPI4_SCK |
+| MISO | PE5 | SPI4_MISO |
+| MOSI | PE6 | SPI4_MOSI |
+| SDA (CS) | GPIO | Điều khiển bằng GPIO (NSS Software) |
+| RST | GPIO | Điều khiển bằng GPIO |
+| VCC | 3.3V | |
+| GND | GND | |
 
 
+---
 
-### TÍCH HỢP HỆ THỐNG
+### 4. Kết nối màn hình LCD ILI9341
+
+Màn hình TFT ILI9341 đã được tích hợp sẵn trên kit STM32F429I-DISC1.
+
+Màn hình giao tiếp với STM32 thông qua **SPI5** ở chế độ **TX Only (Simplex Master)** vì chỉ ghi dữ liệu xuống LCD, không cần đọc ngược.
+
+| Tín hiệu LCD | STM32F429I-DISC1 | Nhãn CubeMX |
+|--------------|------------------|-------------|
+| SCK | PF7 | SPI5_SCK |
+| MOSI (SDI) | PF9 | SPI5_MOSI |
+| CS | PC2 | LCD_CS |
+| RST | PD12 | LCD_RST |
+| DC | PD13 | LCD_DC |
+
+SPI5 được cấu hình với tốc độ truyền khoảng **22.5 Mbit/s**, đáp ứng yêu cầu cập nhật giao diện nhanh trên màn hình TFT.
+
+---
+
+### 5. Kết nối LED 7 đoạn
+
+Hệ thống sử dụng LED 7 đoạn hai chữ số để hiển thị nhanh giá trị khối lượng.
+
+Việc điều khiển LED được thực hiện bằng phương pháp **quét Multiplex**, sử dụng các chân GPIO Output và ngắt định kỳ của **TIM6**. Mỗi lần TIM6 tràn, hàm `HAL_TIM_PeriodElapsedCallback()` sẽ gọi `Run7SegDisplay()` để chuyển đổi chữ số hiển thị.
+
+| Chức năng | Số chân | GPIO |
+|-----------|---------|------|
+| Các đoạn A–G và DP | 8 | PE8–PE15, PG2, PG3 |
+| Chọn Digit 1, Digit 2 | 2 | PE8–PE15, PG2, PG3 |
+
+Việc ánh xạ chi tiết từng chân tới từng đoạn (A, B, C, D, E, F, G, DP) và các chân chọn Digit được khai báo trong file `7seg.h`.
+
+---
+
+### 6. Kết nối UART1
+
+USART1 được sử dụng để truyền dữ liệu giữa STM32 và máy tính nhằm phục vụ việc giám sát và gỡ lỗi.
+
+| STM32 (USART1) | Máy tính |
+|---------------|----------|
+| PA9 (TX) | RX |
+| PA10 (RX) | TX |
+| GND | GND |
+
+Thông số cấu hình:
+
+- Baudrate: **115200 bps**
+- Data bits: **8 bit**
+- Stop bits: **1 bit**
+- Parity: **None**
+- Flow Control: **None**
+
+Dữ liệu truyền bao gồm:
+
+- Giá trị khối lượng đo được.
+- UID của thẻ RFID.
+- Các thông báo trạng thái của hệ thống.
+
+Thông tin được hiển thị trên phần mềm **Hercules**.
+
+---
+
+### 7. Nút bấm chuyển đơn vị
+
+Kit STM32F429I-DISC1 sử dụng nút nhấn **B1** để thay đổi đơn vị hiển thị trên màn hình LCD.
+
+| Tín hiệu | STM32 |
+|----------|--------|
+| B1 | PA0 (GPIO Input) |
+
+Mỗi lần nhấn nút, đơn vị hiển thị sẽ chuyển theo chu kỳ:
+
+```text
+kg → g → lbs → kg → ...
+```
+
+Trong khi đó, **LED 7 đoạn luôn hiển thị giá trị theo đơn vị kilogram (kg)** và không thay đổi theo lựa chọn đơn vị trên LCD.
+
+## TÍCH HỢP HỆ THỐNG
 
 - Mô tả các thành phần phần cứng và vai trò của chúng: máy chủ, máy trạm, thiết bị IoT, MQTT Server, module cảm biến IoT...
 
@@ -72,7 +207,7 @@ __Sản phẩm:__
 | **Data Logger / Storage**      | Lưu trữ dữ liệu theo thời gian để phục vụ theo dõi sức khỏe, thống kê               | Trên **PC** |
 
 
-### ĐẶC TẢ HÀM
+## ĐẶC TẢ HÀM
 
 
 
