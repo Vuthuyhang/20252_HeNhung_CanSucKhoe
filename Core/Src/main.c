@@ -33,7 +33,9 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+typedef struct {
+    uint8_t sec, min, hour, date, month, year;
+} RTC_Time;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -93,6 +95,7 @@ typedef struct {
 	int stt;
 	uint8_t CardID[5];
 	float canNang_g;     // Luon luu theo don vi goc: GRAM (khong phu thuoc don vi dang hien thi)
+	RTC_Time timestamp;
 } DuLieuCanNang;
 
 /* ---------- Chan HX711 ---------- */
@@ -153,6 +156,58 @@ const char *unitName[UNIT_COUNT] = { "kg", "g", "lbs" };
  * truoc khi cho phep trang thai "Dang cho the..." (idle) ghi de len. Nho vay
  * khi vua quet the / vua doi don vi, nguoi dung van con kip doc duoc. */
 #define STATUS_HOLD_MS      1500U
+
+#define RTC_DEV_ADDR (0x68 << 1)
+
+// Chuyển BCD <-> DEC cho RTC
+uint8_t BCD2DEC(uint8_t val) { return ((val / 16 * 10) + (val % 16)); }
+uint8_t DEC2BCD(uint8_t val) { return ((val / 10 * 16) + (val % 10)); }
+
+void RTC_SetTime(uint8_t sec, uint8_t min, uint8_t hour, uint8_t date, uint8_t month, uint8_t year) {
+    uint8_t set_time[7] = {DEC2BCD(sec), DEC2BCD(min), DEC2BCD(hour), DEC2BCD(1), DEC2BCD(date), DEC2BCD(month), DEC2BCD(year)};
+    HAL_I2C_Mem_Write(&hi2c3, RTC_DEV_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, set_time, 7, 100);
+}
+
+void RTC_SetTimeFromCompiler(void) {
+    char monthStr[4];
+    int day, year, hour, min, sec;
+    const char *months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+
+    // Parse ngày: "Mmm dd yyyy" (VD: "Jul 23 2026")
+    sscanf(__DATE__, "%s %d %d", monthStr, &day, &year);
+    // Parse giờ: "hh:mm:ss" (VD: "20:42:00")
+    sscanf(__TIME__, "%d:%d:%d", &hour, &min, &sec);
+
+    uint8_t month = 1;
+    for (uint8_t i = 0; i < 12; i++) {
+        if (strncmp(monthStr, months[i], 3) == 0) {
+            month = i + 1;
+            break;
+        }
+    }
+
+    // Nạp thời gian máy tính vào RTC
+    RTC_SetTime((uint8_t)sec, (uint8_t)min, (uint8_t)hour, (uint8_t)day, month, (uint8_t)(year % 100));
+}
+
+void RTC_GetTime(RTC_Time *time) {
+	uint8_t get_time[7] = {0};
+
+	    // Đọc 7 thanh ghi từ địa chỉ 0x00 của RTC
+	    if (HAL_I2C_Mem_Read(&hi2c3, RTC_DEV_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, get_time, 7, 100) == HAL_OK) {
+	        time->sec   = BCD2DEC(get_time[0] & 0x7F); // Lọc bỏ bit Clock Halt
+	        time->min   = BCD2DEC(get_time[1] & 0x7F);
+	        time->hour  = BCD2DEC(get_time[2] & 0x3F); // Lọc bit 12/24h
+	        time->date  = BCD2DEC(get_time[4] & 0x3F);
+	        time->month = BCD2DEC(get_time[5] & 0x1F);
+	        time->year  = BCD2DEC(get_time[6]);
+	    } else {
+	        // Nếu I2C bị lỗi/mất kết nối với RTC thì gán về 0 tránh in ra số rác
+	        time->sec = 0; time->min = 0; time->hour = 0;
+	        time->date = 1; time->month = 1; time->year = 26;
+	    }
+}
 
 void microDelay(uint16_t delay)
 {
@@ -326,7 +381,10 @@ int main(void)
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
+	RTC_Time currentTime;
+
+	HAL_Init();
+
 
   /* USER CODE BEGIN Init */
 
@@ -358,6 +416,8 @@ int main(void)
 
    HAL_TIM_Base_Start_IT(&htim6); // Quan trong: Khoi dong TIM6 o che do ngat
    Set7SegDisplayValue(0); // Gia tri ban dau
+
+//   RTC_SetTimeFromCompiler();
 
    // static: nam trong vung .bss, KHONG chiem stack (tranh stack overflow voi mang 1000 phan tu)
    static DuLieuCanNang duLieu[1000];
@@ -407,6 +467,8 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  RTC_GetTime(&currentTime);
+
 	  uint8_t CardID[5];
 
 #if CALIBRATION_MODE
@@ -452,7 +514,10 @@ int main(void)
 	  sprintf(lcdBuf, "%.2f %s", displayWeight, unitName[currentUnit]);
 	  LCD_DrawField(VALUE_X, WEIGHT_Y, WEIGHT_FIELD_WIDTH, FONT4, lcdBuf, RED);
 
-	  sprintf(buf, "Can Nang: %.2f %s", displayWeight, unitName[currentUnit]);
+	  sprintf(buf, "[%02d:%02d:%02d - %02d/%02d/20%02d] Can Nang: %.2f %s\r\n",
+	  	          currentTime.hour, currentTime.min, currentTime.sec,
+	  	          currentTime.date, currentTime.month, currentTime.year,
+	  	          displayWeight, unitName[currentUnit]);
 	  HAL_UART_Transmit(&huart1, (uint8_t *)buf, strlen(buf), 100);
 	  HAL_UART_Transmit(&huart1, (uint8_t *)"\n", 1, 100);
 	  HAL_Delay(50);
@@ -476,14 +541,22 @@ int main(void)
 	              if(weightGrams > 0){
 	                  // Cap nhat du lieu cu bang can nang moi vua do
 	                  duLieu[i].canNang_g = weightGrams;
+	                  duLieu[i].timestamp = currentTime;
 
 	                  // Hien thi LCD trang thai (duoc giu toi thieu STATUS_HOLD_MS)
 	                  ShowStatus("Da update data!", DARKGREEN);
 
 	                  float shown = convertWeight(duLieu[i].canNang_g, currentUnit);
-	                  sprintf(buf, "Cap nhat du lieu: STT: %d , ID: %02X%02X%02X%02X%02X , Can Nang Moi: %.2f %s",
-	                          duLieu[i].stt, duLieu[i].CardID[0], duLieu[i].CardID[1], duLieu[i].CardID[2],
-	                          duLieu[i].CardID[3], duLieu[i].CardID[4], shown, unitName[currentUnit]);
+	                  sprintf(buf, "\r\n========================================\r\n"
+	                                           "ID: %02X %02X %02X %02X %02X (UPDATE)\r\n"
+	                                           "Date: %02d/%02d/20%02d\r\n"
+	                                           "Time: %02d:%02d:%02d\r\n"
+	                                           "Weight: %.2f %s\r\n"
+	                                           "========================================\r\n",
+	                                      CardID[0], CardID[1], CardID[2], CardID[3], CardID[4],
+	                                      currentTime.date, currentTime.month, currentTime.year,
+	                                      currentTime.hour, currentTime.min, currentTime.sec,
+	                                      shown, unitName[currentUnit]);
 	              } else {
 	                  // Khong co vat tren ban can -> hien thi lai du lieu cu da luu cho the nay
 	                  ShowStatus("Dang doc the cu", BLUE);
@@ -494,9 +567,16 @@ int main(void)
 	                  sprintf(lcdBuf, "%.2f %s (Cu)", shown, unitName[currentUnit]);
 	                  LCD_DrawField(VALUE_X, WEIGHT_Y, WEIGHT_FIELD_WIDTH, FONT4, lcdBuf, BLUE);
 
-	                  sprintf(buf, "Du lieu cu: STT: %d , ID: %02X%02X%02X%02X%02X , Can Nang: %.2f %s",
-	                          duLieu[i].stt, duLieu[i].CardID[0], duLieu[i].CardID[1], duLieu[i].CardID[2],
-	                          duLieu[i].CardID[3], duLieu[i].CardID[4], shown, unitName[currentUnit]);
+	                  sprintf(buf, "\r\n========================================\r\n"
+	                                           "ID: %02X %02X %02X %02X %02X (OLD DATA)\r\n"
+	                                           "Date Saved: %02d/%02d/20%02d\r\n"
+	                                           "Time Saved: %02d:%02d:%02d\r\n"
+	                                           "Weight: %.2f %s\r\n"
+	                                           "========================================\r\n",
+	                                      duLieu[i].CardID[0], duLieu[i].CardID[1], duLieu[i].CardID[2], duLieu[i].CardID[3], duLieu[i].CardID[4],
+	                                      duLieu[i].timestamp.date, duLieu[i].timestamp.month, duLieu[i].timestamp.year,
+	                                      duLieu[i].timestamp.hour, duLieu[i].timestamp.min, duLieu[i].timestamp.sec,
+	                                      shown, unitName[currentUnit]);
 
 	                  // LED van luon hien thi theo kg
 	                  Set7SegDisplayValue(weightToLed(convertWeight(duLieu[i].canNang_g, UNIT_KG)));
@@ -513,6 +593,7 @@ int main(void)
 	              duLieu[stt].stt = stt;
 	              memcpy(duLieu[stt].CardID, CardID, sizeof(CardID));
 	              duLieu[stt].canNang_g = weightGrams;
+	              duLieu[stt].timestamp = currentTime;
 
 	              // Hien thi LCD trang thai tao the moi + cap nhat so the da luu
 	              ShowStatus("Tao the moi!", MAGENTA);
@@ -520,9 +601,16 @@ int main(void)
 	              LCD_DrawField(VALUE_X, COUNT_Y, COUNT_FIELD_WIDTH, FONT3, lcdBuf, DARKGREEN);
 
 	              float shown = convertWeight(duLieu[stt].canNang_g, currentUnit);
-	              sprintf(buf, "Ghi du lieu moi: STT: %d , ID: %02X%02X%02X%02X%02X , Can Nang: %.2f %s",
-	                      duLieu[stt].stt, duLieu[stt].CardID[0], duLieu[stt].CardID[1], duLieu[stt].CardID[2],
-	                      duLieu[stt].CardID[3], duLieu[stt].CardID[4], shown, unitName[currentUnit]);
+	              sprintf(buf, "\r\n========================================\r\n"
+	                                   "ID: %02X %02X %02X %02X %02X (NEW CARD)\r\n"
+	                                   "Date: %02d/%02d/20%02d\r\n"
+	                                   "Time: %02d:%02d:%02d\r\n"
+	                                   "Weight: %.2f %s\r\n"
+	                                   "========================================\r\n",
+	                              CardID[0], CardID[1], CardID[2], CardID[3], CardID[4],
+	                              currentTime.date, currentTime.month, currentTime.year,
+	                              currentTime.hour, currentTime.min, currentTime.sec,
+	                              shown, unitName[currentUnit]);
 
 	              HAL_UART_Transmit(&huart1, (uint8_t *)buf, strlen(buf), 1000);
 	              HAL_UART_Transmit(&huart1, (uint8_t *)"\n", 1, 1000);
@@ -628,7 +716,7 @@ static void MX_I2C3_Init(void)
 
   /* USER CODE END I2C3_Init 1 */
   hi2c3.Instance = I2C3;
-  hi2c3.Init.ClockSpeed = 400000;
+  hi2c3.Init.ClockSpeed = 100000;
   hi2c3.Init.DutyCycle = I2C_DUTYCYCLE_2;
   hi2c3.Init.OwnAddress1 = 0;
   hi2c3.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
