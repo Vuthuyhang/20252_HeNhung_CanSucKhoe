@@ -26,6 +26,7 @@ __Sản phẩm:__
   |3|Nguyễn Nhật Minh|20225210|Phát triển module nhận dạng và quản lý dữ liệu: Cấu hình giao tiếp SPI4 (MX_SPI4_Init) kết nối module RC522; tích hợp thư viện MFRC522; xây dựng chức năng đọc UID thẻ RFID thông qua hàm TM_MFRC522_Check(); xử lý quản lý dữ liệu người dùng (DuLieuCanNang), cập nhật cân nặng khi thẻ tồn tại và tạo bản ghi mới khi phát hiện thẻ mới; tích hợp module RTC DS1307 qua giao tiếp I2C để lấy thời gian đo|
   |4|Nguyễn Thị Thùy Linh |20225354| Phát triển giao tiếp và tích hợp hệ thống: Cấu hình UART1 (MX_USART1_UART_Init) truyền dữ liệu từ STM32 về máy tính; xây dựng định dạng dữ liệu gửi qua UART (khối lượng, UID, thời gian); kiểm tra giao tiếp bằng phần mềm Hercules.|
 
+
 ## MÔI TRƯỜNG HOẠT ĐỘNG
 
 - **Module CPU/dev kit:** STM32F429-DISC
