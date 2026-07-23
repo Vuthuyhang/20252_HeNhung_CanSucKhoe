@@ -358,7 +358,7 @@ void microDelay(uint16_t delay)
   . HOẠT ĐỘNG/CHỨC NĂNG:
      
 	  __HAL_TIM_SET_COUNTER(&htim2, 0);          // Reset bộ đếm Timer 2 về 0
-	  while (__HAL_TIM_GET_COUNTER(&htim2) < delay); // Chờ đợi cho đến khi bộ đếm đạt giá trị delay
+	  while (__HAL_TIM_GET_COUNTER(&htim2) < delay); //cpu kiểm tra giá trị bộ đếm Timer2 đến khi counter >= delay
 
 	- Sử dụng Timer 2 làm timebase cho độ trễ chính xác
 	- Độ trễ được tính bằng microsecond dựa trên tần số timer
@@ -436,50 +436,52 @@ int32_t getHX711(void)
 	  return data;                               // Trả về giá trị ADC 24-bit
  */
 ```
-1.3.Hàm weigh()
+1.3.Hàm weigh_grams()
 ```cpp
-int weigh()
+float weigh_grams(void)
 {
-  int32_t  total = 0;
-  int32_t  samples = 50;
-  int milligram;
-  float coefficient;
-  for(uint16_t i=0 ; i<samples ; i++)
-  {
-      total += getHX711();
+  int32_t total = 0;
+  const int32_t samples = 50;
+
+  for (int32_t i = 0; i < samples; i++) {
+    total += getHX711();
   }
-  int32_t average = (int32_t)(total / samples);
-  coefficient = knownOriginal / knownHX711;
-  milligram = (int)(average-tare)*coefficient;
-  return milligram;
+  int32_t average = total / samples;
+
+  float coefficient = knownOriginal_g / knownHX711_raw; // gram / (don vi raw)
+  float grams = (float)(average - tare) * coefficient;
+
+  if (grams < 0) grams = 0;
+  return grams;
 }
 /*
   HÀM weigh() (main .c)
 
-  . MỤC ĐÍCH: Tính toán trọng lượng thực tế từ giá trị ADC
+  . MỤC ĐÍCH: chuyển đổi giá trị RAW từ HX711 thành khối lượng thực tế theo đơn vị gram.
 
   . THAM SỐ:
       - Input: Không có
-      - Output: int - Trọng lượng tính bằng milligram
+      - Output: float - khối lượng đo được bằng 
 
   . HOẠT ĐỘNG/CHỨC NĂNG:
 
 	  int32_t total = 0;
-	  int32_t samples = 50;                      // Lấy 50 mẫu để tính trung bình
+	  const int32_t samples = 50;                   // Lấy 50 mẫu để tính trung bình
 	  int milligram;
 	  float coefficient;
 	  
 	  // Lấy 50 mẫu ADC để giảm nhiễu
-	  for(uint16_t i=0; i<samples; i++)
+	  for(int32_t i=0; i<samples; i++)
 	  {
 	    total += getHX711();                     // Cộng dồn các giá trị đọc được
 	  }
 	  
-	  int32_t average = (int32_t)(total / samples);      // Tính giá trị trung bình
-	  coefficient = knownOriginal / knownHX711;          // Hệ số hiệu chuẩn = 148000/165012
-	  milligram = (int)(average-tare)*coefficient;       // Công thức: (ADC - Tare) × Hệ số
+	  int32_t average = total / samples;      // Tính giá trị trung bình
+	  float coefficient = knownOriginal_g / knownHX711_raw;          
+	  float grams = (float)(average - tare) * coefficient;      // Công thức: (ADC - Tare) × Hệ số
 	  
-	  return milligram;                                  // Trả về trọng lượng (mg)
+	  if (grams < 0) grams = 0;
+      return grams;
 
  */
 ```
