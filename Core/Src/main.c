@@ -617,8 +617,6 @@ int main(void)
 
 	              stt++;
 	          } else {
-	              ShowStatus("Bo nho da day!", RED);
-	              sprintf(buf, "Bo nho day, khong the luu the moi");
 	              HAL_UART_Transmit(&huart1, (uint8_t *)buf, strlen(buf), 1000);
 	              HAL_UART_Transmit(&huart1, (uint8_t *)"\n", 1, 1000);
 	          }
