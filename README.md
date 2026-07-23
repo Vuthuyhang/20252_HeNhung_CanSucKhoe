@@ -180,6 +180,31 @@ kg → g → lbs → kg → ...
 
 Trong khi đó, **LED 7 đoạn luôn hiển thị giá trị theo đơn vị kilogram (kg)** và không thay đổi theo lựa chọn đơn vị trên LCD.
 
+### 8. Kết nối RTC (DS1307 / DS3231) với STM32
+
+Module Real-Time Clock (Tiny RTC) cung cấp thông tin thời gian thực (ngày, tháng, năm, giờ, phút, giây) cho hệ thống[cite: 2]. Module giao tiếp với STM32F429I-DISC1 thông qua chuẩn ngoại vi **I2C3** ở tốc độ 100 kHz[cite: 2].
+
+| Tiny RTC | STM32F429I-DISC1 | Ghi chú |
+|----------|------------------|---------|
+| SCL | PA8 | I2C3_SCL |
+| SDA | PC9 | I2C3_SDA |
+| VCC | 3.3V | Nguồn cấp chính cho module |
+| GND | GND | Chân mass chung |
+| BAT | CR2032 (Nội bộ) | Pin dự phòng nuôi chip RTC khi mất điện |
+
+Cấu hình I2C3:
+
+- **Mode:** I2C Master
+- **Clock Speed:** 100 kHz (Standard Mode)
+- **Addressing Mode:** 7-bit
+- **Địa chỉ I2C của DS1307/DS3231:** `0x68` (dạng 8-bit trong STM32 HAL: `0xD0`)
+
+Trong quá trình hoạt động:
+
+- **PA8 (SCL)** và **PC9 (SDA)** đảm nhận vai trò truyền nhận dữ liệu thời gian giữa vi điều khiển và module RTC qua chuỗi xung I2C.
+- Dữ liệu thời gian đọc về ở dạng **BCD (Binary-Coded Decimal)** được vi điều khiển giải mã sang số nguyên Decimal và gắn vào bản ghi cân nặng của người dùng[cite: 2].
+- Khi ngắt nguồn cấp chính (VCC), pin cúc áo **CR2032** kích hoạt để duy trì bộ đếm thời gian bên trong chip RTC[cite: 2].
+
 ## TÍCH HỢP HỆ THỐNG
 
 - Mô tả các thành phần phần cứng và vai trò của chúng: máy chủ, máy trạm, thiết bị IoT, MQTT Server, module cảm biến IoT...
@@ -485,394 +510,304 @@ float weigh_grams(void)
 
  */
 ```
-**2.Hàm khởi tạo hệ thống**\
-2.1.Hàm SystemClock_Config()
+1.4 convertWeight() 
 ```cpp
-void SystemClock_Config(void)
+float convertWeight(float grams, WeightUnit unit)
 {
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-
-  /** Configure the main internal regulator output voltage
-  */
-  __HAL_RCC_PWR_CLK_ENABLE();
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
-
-  /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLM = 4;
-  RCC_OscInitStruct.PLL.PLLN = 180;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = 4;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Activate the Over-Drive mode
-  */
-  if (HAL_PWREx_EnableOverDrive() != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV4;
-
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
-  {
-    Error_Handler();
-  }
-}
-/*
-  HÀM SystemClock_Config(void) (main .c)
-
-  . MỤC ĐÍCH: Cấu hình clock hệ thống STM32F4 hoạt động tối ưu
-
-  . THAM SỐ:
-      - Input: Không có
-      - Output: Không có
-
-  . HOẠT ĐỘNG/CHỨC NĂNG:
-
-	RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-	RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-	
-	__HAL_RCC_PWR_CLK_ENABLE();                           // Kích hoạt clock PWR
-	__HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);  // Thiết lập voltage scaling
-	
-	// Cấu hình HSE và PLL
-	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;    // Sử dụng HSE
-	RCC_OscInitStruct.HSEState = RCC_HSE_ON;                     // Bật HSE
-	RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;                 // Bật PLL
-	RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;         // PLL từ HSE
-	RCC_OscInitStruct.PLL.PLLM = 4;                              // PLLM = 4
-	RCC_OscInitStruct.PLL.PLLN = 180;                            // PLLN = 180
-	RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;                 // PLLP = 2
-	
-	// Cấu hình bus clock
-	RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;    // SYSCLK từ PLL
-	RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;          // AHB = 180MHz
-	RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;           // APB1 = 45MHz
-	RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV4;           // APB2 = 45MHz
-
- */
-```
-2.2.Hàm MX_GPIO_Init() 
-```cpp
-static void MX_GPIO_Init(void)
-{
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-  /* USER CODE BEGIN MX_GPIO_Init_1 */
-
-  /* USER CODE END MX_GPIO_Init_1 */
-
-  /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOE_CLK_ENABLE();
-  __HAL_RCC_GPIOH_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOG_CLK_ENABLE();
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_4|GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10
-                          |GPIO_PIN_11|GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14
-                          |GPIO_PIN_15|GPIO_PIN_0, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOG, GPIO_PIN_2|GPIO_PIN_3, GPIO_PIN_RESET);
-
-  /*Configure GPIO pins : PE4 PE8 PE9 PE10
-                           PE11 PE12 PE13 PE14
-                           PE15 PE0 */
-  GPIO_InitStruct.Pin = GPIO_PIN_4|GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10
-                          |GPIO_PIN_11|GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14
-                          |GPIO_PIN_15|GPIO_PIN_0;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PA0 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : PG2 PG3 */
-  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PE1 */
-  GPIO_InitStruct.Pin = GPIO_PIN_1;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
-
-  /* USER CODE BEGIN MX_GPIO_Init_2 */
-
-  /* USER CODE END MX_GPIO_Init_2 */
+    switch (unit)
+    {
+        case UNIT_KG:  return grams / 1000.0f;
+        case UNIT_G:   return grams;
+        case UNIT_LBS: return grams / 453.59237f;
+        default:       return grams;
+    }
 }
 
 /*
-  HÀM MX_GPIO_Init(void) (main .c)
+  HÀM convertWeight(float grams, WeightUnit unit) (main.c)
 
-  . MỤC ĐÍCH: Khởi tạo các pin GPIO cho LED 7-segment, HX711, RFID
+  . MỤC ĐÍCH:
+      Quy đổi giá trị khối lượng từ đơn vị gốc (gram)
+      sang đơn vị hiển thị do người dùng lựa chọn.
 
   . THAM SỐ:
-      - Input: Không có
-      - Output: Không có
+      - Input:
+          + float grams : Khối lượng theo đơn vị gram.
+          + WeightUnit unit : Đơn vị cần chuyển đổi
+            (UNIT_KG, UNIT_G, UNIT_LBS).
+
+      - Output:
+          + float : Giá trị khối lượng sau khi quy đổi.
 
   . HOẠT ĐỘNG/CHỨC NĂNG:
-	GPIO_InitTypeDef GPIO_InitStruct = {0};
-	
-	// Kích hoạt clock cho các port GPIO
-	__HAL_RCC_GPIOE_CLK_ENABLE();                         // Kích hoạt GPIOE
-	__HAL_RCC_GPIOH_CLK_ENABLE();                         // Kích hoạt GPIOH
-	__HAL_RCC_GPIOA_CLK_ENABLE();                         // Kích hoạt GPIOA
-	__HAL_RCC_GPIOG_CLK_ENABLE();                         // Kích hoạt GPIOG
-	__HAL_RCC_GPIOC_CLK_ENABLE();                         // Kích hoạt GPIOC
-	
-	// Cấu hình các pin output cho LED 7-segment và HX711
-	GPIO_InitStruct.Pin = GPIO_PIN_4|GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10
-	                     |GPIO_PIN_11|GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14
-	                     |GPIO_PIN_15|GPIO_PIN_0;           // Chọn các pin
-	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;            // Push-pull output
-	GPIO_InitStruct.Pull = GPIO_NOPULL;                    // Không pull-up/down
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;           // Tốc độ thấp
-	HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);               // Khởi tạo GPIOE
-	
-	// Cấu hình pin input cho HX711 DT
-	GPIO_InitStruct.Pin = GPIO_PIN_1;                      // Pin PE1
-	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;                // Chế độ input
-	GPIO_InitStruct.Pull = GPIO_NOPULL;                    // Không pull
-	HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);               // Khởi tạo pin input
+      - Nếu chọn UNIT_KG:
+            grams / 1000
+      - Nếu chọn UNIT_G:
+            giữ nguyên giá trị.
+      - Nếu chọn UNIT_LBS:
+            grams / 453.59237
+      - Nếu đơn vị không hợp lệ:
+            trả về giá trị gram.
 
+  . NGUYÊN LÝ HOẠT ĐỘNG:
+      Hàm chỉ thực hiện quy đổi đơn vị hiển thị.
+      Giá trị cân gốc luôn được lưu dưới đơn vị gram.
+*/
+```
+1.5. Hàm weightToLed() 
+```cpp
+int weightToLed(float displayWeight)
+{
+    int ledValue = (int)(displayWeight + 0.5f);
+
+    if (ledValue > LED_MAX_VALUE)
+        ledValue = LED_MAX_VALUE;
+
+    if (ledValue < 0)
+        ledValue = 0;
+
+    return ledValue;
+}
+
+/*
+  HÀM weightToLed(float displayWeight) (main.c)
+
+  . MỤC ĐÍCH:
+      Chuyển giá trị khối lượng sang số nguyên
+      để hiển thị trên LED 7 đoạn.
+
+  . THAM SỐ:
+      - Input:
+          + float displayWeight:
+            Giá trị khối lượng sau khi quy đổi.
+
+      - Output:
+          + int:
+            Giá trị nguyên dùng để hiển thị LED.
+
+  . HOẠT ĐỘNG/CHỨC NĂNG:
+      - Làm tròn giá trị thực về số nguyên gần nhất.
+      - Giới hạn giá trị hiển thị trong khoảng 0–99.
+      - Trả về giá trị để hàm Set7SegDisplayValue()
+        sử dụng.
+
+  . NGUYÊN LÝ HOẠT ĐỘNG:
+      LED 7 đoạn chỉ hiển thị được hai chữ số nên
+      cần chuyển giá trị thực thành số nguyên và
+      giới hạn trong phạm vi cho phép để tránh
+      hiển thị sai hoặc tràn dữ liệu.
+*/
+```
+
+**2. Các hàm điều khiển RTC (DS1307 / DS3231)**
+2.1. Các hàm bổ trợ chuyển đổi BCD
+```cpp
+uint8_t BCD2DEC(uint8_t val) { return ((val / 16 * 10) + (val % 16)); } uint8_t DEC2BCD(uint8_t val) { return ((val / 10 * 16) + (val % 10)); } 
+/*
+  . MỤC ĐÍCH: Chuyển đổi qua lại giữa định dạng BCD (Binary-Coded Decimal) của thanh ghi RTC và số nguyên Decimal trong C.
+
+  . THAM SỐ:
+      - Input: uint8_t val (Giá trị số dạng BCD hoặc Decimal)
+      - Output: uint8_t (Giá trị sau khi chuyển đổi)
+
+  . HOẠT ĐỘNG/CHỨC NĂNG: Hàm BCD2DEC(val) (Chuyển từ BCD sang Decimal)
+Hàm DEC2BCD(val) (Chuyển từ Decimal sang BCD).
  */
 ```
-**3.Hàm giao tiếp ngoại vi**\
-3.1.Hàm MX_USART1_UART_Init()
+2.2. Hàm RTC_SetTime()
 ```cpp
-static void MX_USART1_UART_Init(void)
+void RTC_SetTime(uint8_t sec, uint8_t min, uint8_t hour, uint8_t date, uint8_t month, uint8_t year) { uint8_t set_time[7] = { DEC2BCD(sec), DEC2BCD(min), DEC2BCD(hour), DEC2BCD(1), // Mặc định thứ trong tuần = 1 DEC2BCD(date), DEC2BCD(month), DEC2BCD(year) }; HAL_I2C_Mem_Write(&hi2c3, RTC_DEV_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, set_time, 7, 100); } 
+/*
+  . MỤC ĐÍCH: Ghi cài đặt thời gian ban đầu vào các thanh ghi của module RTC qua bus I2C3.
+
+  . THAM SỐ:
+      - Input: sec, min, hour, date, month, year (Dạng số nguyên Decimal).
+      - Output: Không có (void)
+
+  . HOẠT ĐỘNG/CHỨC NĂNG: Chuyển đổi toàn bộ các tham số thời gian từ Decimal sang BCD bằng hàm DEC2BCD(). Lưu chuỗi 7 bytes dữ liệu vào mảng set_time. Gọi hàm HAL_I2C_Mem_Write() gửi mảng dữ liệu đến thanh ghi 0x00 của RTC qua bus hi2c3.
+ */
+```
+2.3. Hàm RTC_SetTimeFromCompiler()
+```cpp
+void RTC_SetTimeFromCompiler(void) 
 {
+    char monthStr[4];
+    int day, year, hour, min, sec;
+    const char *months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
 
-  /* USER CODE BEGIN USART1_Init 0 */
+    // Parse ngày: "Mmm dd yyyy" (VD: "Jul 23 2026")
+    sscanf(__DATE__, "%s %d %d", monthStr, &day, &year);
+    // Parse giờ: "hh:mm:ss" (VD: "20:42:00")
+    sscanf(__TIME__, "%d:%d:%d", &hour, &min, &sec);
 
-  /* USER CODE END USART1_Init 0 */
+    uint8_t month = 1;
+    for (uint8_t i = 0; i < 12; i++) {
+        if (strncmp(monthStr, months[i], 3) == 0) {
+            month = i + 1;
+            break;
+        }
+    }
 
-  /* USER CODE BEGIN USART1_Init 1 */
-
-  /* USER CODE END USART1_Init 1 */
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART1_Init 2 */
-
-  /* USER CODE END USART1_Init 2 */
-
+    // Nạp thời gian máy tính vào RTC
+    RTC_SetTime((uint8_t)sec, (uint8_t)min, (uint8_t)hour, (uint8_t)day, month, (uint8_t)(year % 100));
 }
 /*
-  HÀM MX_USART1_UART_Init(void) (main .c)
-
-  . MỤC ĐÍCH: Khởi tạo UART1 cho giao tiếp với PC/thiết bị ngoài
+  . MỤC ĐÍCH: Tự động trích xuất thời gian máy tính tại thời điểm biên dịch (Build code) và đồng bộ vào module RTC.
 
   . THAM SỐ:
-      - Input: Không có
-      - Output: Không có
+      - Input: Không có.
+      - Output: Không có (void).
 
-  . HOẠT ĐỘNG/CHỨC NĂNG:
-	huart1.Instance = USART1;                             // Chọn UART1
-	huart1.Init.BaudRate = 115200;                        // Tốc độ baud 115200
-	huart1.Init.WordLength = UART_WORDLENGTH_8B;          // 8 bit dữ liệu
-	huart1.Init.StopBits = UART_STOPBITS_1;               // 1 stop bit
-	huart1.Init.Parity = UART_PARITY_NONE;                // Không parity
-	huart1.Init.Mode = UART_MODE_TX_RX;                   // Cả TX và RX
-	huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;          // Không flow control
-	huart1.Init.OverSampling = UART_OVERSAMPLING_16;      // Oversampling x16
-	HAL_UART_Init(&huart1);                               // Khởi tạo UART
-
+  . HOẠT ĐỘNG/CHỨC NĂNG: Trích xuất chuỗi ngày/tháng/năm từ macro __DATE__ và giờ/phút/giây từ macro __TIME__ của GCC. Sử dụng sscanf() để phân tách chuỗi thành các giá trị số nguyên. Tra cứu chuỗi tên tháng tiếng Anh (Jan–Dec) để đổi sang số tháng tương ứng (1–12). Gọi RTC_SetTime() để nạp thời gian tự động vào RTC.
  */
 ```
-3.2.Hàm MX_SPI4_Init()
+2.4. Hàm RTC_GetTime()
 ```cpp
-static void MX_SPI4_Init(void)
+void RTC_GetTime(RTC_Time *time) 
 {
+    uint8_t get_time[7] = {0};
 
-  /* USER CODE BEGIN SPI4_Init 0 */
-
-  /* USER CODE END SPI4_Init 0 */
-
-  /* USER CODE BEGIN SPI4_Init 1 */
-
-  /* USER CODE END SPI4_Init 1 */
-  /* SPI4 parameter configuration*/
-  hspi4.Instance = SPI4;
-  hspi4.Init.Mode = SPI_MODE_MASTER;
-  hspi4.Init.Direction = SPI_DIRECTION_2LINES;
-  hspi4.Init.DataSize = SPI_DATASIZE_8BIT;
-  hspi4.Init.CLKPolarity = SPI_POLARITY_LOW;
-  hspi4.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi4.Init.NSS = SPI_NSS_SOFT;
-  hspi4.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
-  hspi4.Init.FirstBit = SPI_FIRSTBIT_MSB;
-  hspi4.Init.TIMode = SPI_TIMODE_DISABLE;
-  hspi4.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
-  hspi4.Init.CRCPolynomial = 10;
-  if (HAL_SPI_Init(&hspi4) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN SPI4_Init 2 */
-
-  /* USER CODE END SPI4_Init 2 */
-
+    // Đọc 7 thanh ghi từ địa chỉ 0x00 của RTC
+    if (HAL_I2C_Mem_Read(&hi2c3, RTC_DEV_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, get_time, 7, 100) == HAL_OK) {
+        time->sec   = BCD2DEC(get_time[0] & 0x7F); // Lọc bỏ bit Clock Halt
+        time->min   = BCD2DEC(get_time[1] & 0x7F);
+        time->hour  = BCD2DEC(get_time[2] & 0x3F); // Lọc bit 12/24h
+        time->date  = BCD2DEC(get_time[4] & 0x3F);
+        time->month = BCD2DEC(get_time[5] & 0x1F);
+        time->year  = BCD2DEC(get_time[6]);
+    } else {
+        // Nếu I2C bị lỗi/mất kết nối với RTC thì gán về giá trị mặc định an toàn
+        time->sec = 0; time->min = 0; time->hour = 0;
+        time->date = 1; time->month = 1; time->year = 26;
+    }
 }
 /*
-  HÀM MX_SPI4_Init(void) (main .c)
-
-  . MỤC ĐÍCH: Khởi tạo SPI4 cho giao tiếp với module RFID MFRC522
+  . MỤC ĐÍCH: Đọc dữ liệu thời gian thực hiện tại từ các thanh ghi của module RTC qua giao tiếp I2C3.
 
   . THAM SỐ:
-      - Input: Không có
-      - Output: Không có
+      - Input: Con trỏ cấu trúc RTC_Time *time.
+      - Output: Không có (void).
 
-  . HOẠT ĐỘNG/CHỨC NĂNG:
-	hspi4.Instance = SPI4;                                // Chọn SPI4
-	hspi4.Init.Mode = SPI_MODE_MASTER;                    // STM32 là Master
-	hspi4.Init.Direction = SPI_DIRECTION_2LINES;          // Full duplex
-	hspi4.Init.DataSize = SPI_DATASIZE_8BIT;              // 8 bit data
-	hspi4.Init.CLKPolarity = SPI_POLARITY_LOW;            // Clock idle LOW
-	hspi4.Init.CLKPhase = SPI_PHASE_1EDGE;                // Data trên cạnh đầu
-	hspi4.Init.NSS = SPI_NSS_SOFT;                        // Software NSS
-	hspi4.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;  // Chia tần số /16
-	hspi4.Init.FirstBit = SPI_FIRSTBIT_MSB;               // MSB trước
-	HAL_SPI_Init(&hspi4);                                 // Khởi tạo SPI
+  . HOẠT ĐỘNG/CHỨC NĂNG: Sử dụng HAL_I2C_Mem_Read() để đọc 7 bytes dữ liệu từ địa chỉ thanh ghi 0x00 của RTC qua hi2c3. Nếu đọc thành công (HAL_OK): Áp dụng bộ lọc bitmask (0x7F, 0x3F, 0x1F) để loại bỏ bit điều khiển, dùng BCD2DEC() chuyển sang số Decimal và gán vào các trường tương ứng của time.Nếu đọc thất bại (Lỗi I2C/Tuột dây): Tự động gán giá trị mặc định an toàn để tránh in ra ký tự/số rác lên LCD và UART. 
  */
 ```
-**4.Hàm timer và ngắt**\
-4.1.Hàm MX_TIM6_Init()
+
+
+
+ **3. Hàm Timer và ngắt**
+
+**3.1. Hàm `MX_TIM6_Init(void)`**
+
 ```cpp
-static void MX_TIM6_Init(void)
-{
-
-  /* USER CODE BEGIN TIM6_Init 0 */
-
-  /* USER CODE END TIM6_Init 0 */
-
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  /* USER CODE BEGIN TIM6_Init 1 */
-
-  /* USER CODE END TIM6_Init 1 */
-  htim6.Instance = TIM6;
-  htim6.Init.Prescaler = 89;
-  htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim6.Init.Period = 99;
-  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM6_Init 2 */
-
-  /* USER CODE END TIM6_Init 2 */
-
-}
 /*
-  HÀM MX_TIM6_Init(void) (main .c)
+  HÀM MX_TIM6_Init(void) (main.c)
 
-  . MỤC ĐÍCH: Khởi tạo Timer 6 cho việc quét LED 7-segment
+  . MỤC ĐÍCH:
+      Khởi tạo Timer 6 để tạo ngắt định kỳ phục vụ việc quét LED 7 đoạn
+      theo phương pháp Multiplexing.
 
   . THAM SỐ:
-      - Input: Không có
-      - Output: Không có
+      - Input : Không có
+      - Output: Không có (void)
 
   . HOẠT ĐỘNG/CHỨC NĂNG:
-	htim6.Instance = TIM6;                                  // Chọn Timer 6
-	htim6.Init.Prescaler = 89;                             // Chia tần số: 90MHz/90 = 1MHz
-	htim6.Init.CounterMode = TIM_COUNTERMODE_UP;           // Chế độ đếm lên
-	htim6.Init.Period = 99;                                // Chu kỳ: 100us (1MHz/100)
-	htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;  // Tắt preload
-	HAL_TIM_Base_Init(&htim6);                             // Khởi tạo timer
- */
+      - Chọn bộ định thời TIM6.
+      - Thiết lập Prescaler để chia tần số xung Clock.
+      - Thiết lập Period để xác định chu kỳ phát sinh ngắt.
+      - Khởi tạo Timer bằng HAL_TIM_Base_Init().
+      - Timer được khởi động bằng HAL_TIM_Base_Start_IT() để phát sinh
+        ngắt định kỳ.
+
+  . NGUYÊN LÝ HOẠT ĐỘNG:
+      TIM6 hoạt động như bộ tạo thời gian (Time Base). Mỗi khi bộ đếm
+      đạt giá trị Period, Timer tạo ngắt Update Event và gọi hàm
+      HAL_TIM_PeriodElapsedCallback() để thực hiện quét LED 7 đoạn.
+*/
 ```
-4.2.Hàm HAL_TIM_PeriodElapsedCallback()
+
+---
+
+**3.2. Hàm `HAL_TIM_PeriodElapsedCallback()`**
+
 ```cpp
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-  if (htim->Instance == TIM6)
-  {
-    Run7SegDisplay(); // Gọi hàm quét LED trong ngắt timer
-  }
+    if (htim->Instance == TIM6)
+    {
+        Run7SegDisplay();
+    }
 }
-/*
-  HÀM HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) (main .c)
 
-  . MỤC ĐÍCH: Hàm callback được gọi khi timer overflow
+/*
+  HÀM HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) (main.c)
+
+  . MỤC ĐÍCH:
+      Xử lý ngắt Timer 6 và cập nhật hiển thị LED 7 đoạn.
 
   . THAM SỐ:
-      - Input: TIM_HandleTypeDef *htim - Con trỏ đến handle timer
-      - Output: Không có
+      - Input:
+          + TIM_HandleTypeDef *htim:
+            Con trỏ đến Timer phát sinh ngắt.
+      - Output:
+          Không có (void)
 
   . HOẠT ĐỘNG/CHỨC NĂNG:
-	if (htim->Instance == TIM6)                    // Kiểm tra Timer 6
-	{
-	  Run7SegDisplay();                            // Gọi hàm quét LED trong ngắt timer
-	}
- */
+      - Kiểm tra Timer phát sinh ngắt có phải TIM6 hay không.
+      - Nếu đúng, gọi hàm Run7SegDisplay() để thực hiện quét LED
+        theo phương pháp Multiplexing.
+      - Việc quét được thực hiện liên tục với tần số cao giúp hai
+        chữ số hiển thị ổn định, không bị nhấp nháy.
+
+  . NGUYÊN LÝ HOẠT ĐỘNG:
+      Đây là hàm callback của thư viện HAL, được gọi tự động khi
+      TIM6 phát sinh ngắt Update Event. Chương trình không gọi trực
+      tiếp hàm này trong vòng lặp chính.
+*/
 ```
-**5.Struct dữ liệu**\
-5.1 Struct DuLieuCanNang
+**4.Struct dữ liệu**\
+4.1 Struct DuLieuCanNang
 ```cpp
 typedef struct {
     int stt;              // Số thứ tự bản ghi
     uint8_t CardID[5];    // ID thẻ RFID (5 bytes)
-    int canNang;          // Cân nặng tương ứng (mg)
+    int canNang_g;          //Lưu trữ theo đơn vị gram
+    RTC_Time timestamp;   // Thời gian đo từ RTC
 } DuLieuCanNang;
 /*
   . CHỨC NĂNG: Cấu trúc dữ liệu lưu trữ thông tin thẻ RFID và cân nặng
   . THÀNH PHẦN:
 	stt: Định danh duy nhất cho mỗi bản ghi
 	CardID: Mã định danh thẻ RFID
-	canNang: Giá trị cân nặng được đo
+	canNang_g: Giá trị cân nặng được đo
+            timestamp: Thời gian đo lấy từ RTC
 */
 ```
-**6.Constants và biến toàn cục**\
-6.1.Các hằng số hiệu chuẩn
+4.2. Struct RTC_Time
+```cpp
+typedef struct {
+    uint8_t sec, min, hour, date, month, year;
+} RTC_Time;
+/*
+  . CHỨC NĂNG: Cấu trúc dữ liệu lưu trữ thời gian
+  . THÀNH PHẦN:
+	sec: Giây
+	min: Phút
+	hour: Giờ
+            day: Ngày
+	month: Tháng
+	year: Năm
+*/
+```
+
+
+**5.Constants và biến toàn cục**\
+5.1.Các hằng số hiệu chuẩn
 
 ```c
-uint32_t tare = 8412745;          // Giá trị cân không tải
-float knownOriginal = 148000;     // Khối lượng chuẩn (mg)
-float knownHX711 = 165012;        // Giá trị ADC tương ứng
+int32_t tare = 7723582;          // Giá trị cân không tải
+float knownOriginal_g = 500.0f;     // Khối lượng chuẩn (mg)
+float knownHX71_raw = -25760.0f;        // Giá trị ADC tương ứng
 /*
   . CHỨC NĂNG: Các hằng số được sử dụng để hiệu chuẩn cân
   . Ý NGHĨA:
@@ -881,7 +816,7 @@ float knownHX711 = 165012;        // Giá trị ADC tương ứng
 	knownHX711: Giá trị ADC đo được với vật chuẩn
 */
 ```
-6.2.Định nghĩa pin HX711
+5.2.Định nghĩa pin HX711
 ```c
 #define SCK_PIN   GPIO_PIN_0      // Pin clock
 #define SCK_PORT  GPIOE
@@ -892,44 +827,89 @@ float knownHX711 = 165012;        // Giá trị ADC tương ứng
   . Ý NGHĨA: Mapping phần cứng cho việc giao tiếp với load cell amplifier
 */
 ```
-**7.Logic chính trong hàm main**\
-7.1 Xử lý dữ liệu RFID và cân nặng
+**6.Khối khởi tạo màn hình LCD (SPI5 và ILI9341)**\
+
+
+6.1. Các hàm điều khiển hiển thị LCD
+
+
 ```c
-// Đọc thẻ RFID
-if(TM_MFRC522_Check(CardID) == MI_OK) {
-    bool tonTai = false;
-    
-    // Kiểm tra thẻ đã tồn tại
-    for(int i = 0; i <= stt; i++) {
-        if(memcmp(duLieu[i].CardID, CardID, sizeof(CardID)) == 0) {
-            tonTai = true;
-            
-            if(weight > 0) {
-                // Cập nhật cân nặng mới
-                duLieu[i].canNang = weight;
-            } else {
-                // Hiển thị dữ liệu cũ
-                weight = duLieu[i].canNang;
-                Set7SegDisplayValue(weight / 10);
-            }
-            break;
-        }
-    }
-    
-    // Thêm bản ghi mới
-    if(!tonTai && weight > 0) {
-        stt++;
-        duLieu[stt].stt = stt;
-        memcpy(duLieu[stt].CardID, CardID, sizeof(CardID));
-        duLieu[stt].canNang = weight;
-    }
-}
-/*
-  . CHỨC NĂNG: Xử lý logic chính của hệ thống
-  . Ý NGHĨA: Quản lý dữ liệu thẻ RFID và cân nặng, cập nhật hoặc thêm mới bản ghi
-*/
+  CÁC HÀM ĐIỀU KHIỂN MÀN HÌNH LCD ILI9341 (Sử dụng từ file Driver)
+
+
+  1. HÀM ILI9341_Init()
+  . MỤC ĐÍCH: Khởi tạo phần cứng màn hình.
+  . HOẠT ĐỘNG: Gửi chuỗi lệnh (Command) và dữ liệu (Data) qua SPI5 để cấu hình các thanh ghi của IC ILI9341 (như Power Control, Memory Access Control, Pixel Format), giúp màn hình thoát khỏi chế độ Sleep và sẵn sàng nhận dữ liệu ảnh.
+
+
+  2. HÀM ILI9341_DrawText(const char* str, const uint8_t font[], uint16_t X, uint16_t Y, uint16_t color, uint16_t bgcolor)
+  . MỤC ĐÍCH: In một chuỗi ký tự (String) lên màn hình.
+  . HOẠT ĐỘNG: Tự động tính toán độ rộng của từng ký tự trong mảng dữ liệu font. Nó cộng dồn độ rộng thực tế của ký tự đang vẽ vào tọa độ X để xác định chính xác vị trí bắt đầu vẽ ký tự tiếp theo (Proportional spacing), giúp chuỗi hiển thị tự nhiên.
 ```
-**8.Kết Luận**\
+
+
+
+**.Logic chính trong hàm main**\
+
+Sau khi khởi tạo toàn bộ các ngoại vi (GPIO, Timer, SPI, I2C, UART, LCD, HX711, RC522 và LED 7 đoạn), hệ thống đi vào vòng lặp vô hạn `while(1)` để thực hiện việc đo, hiển thị và quản lý dữ liệu theo thời gian thực.
+
+### Các bước xử lý
+
+#### 1. Đọc thời gian từ RTC
+
+Hệ thống đọc thời gian hiện tại từ module DS1307 thông qua giao tiếp I2C. Thời gian được sử dụng để hiển thị trên UART và lưu cùng dữ liệu cân nặng của từng thẻ RFID.
+
+#### 2. Kiểm tra nút B1
+
+Nút B1 được sử dụng để chuyển đổi đơn vị hiển thị.
+
+```
+kg → g → lbs → kg
+```
+
+LCD sẽ cập nhật đơn vị mới, trong khi LED 7 đoạn luôn hiển thị giá trị theo đơn vị kilogram.
+
+#### 3. Đọc và xử lý dữ liệu HX711
+
+STM32 đọc 50 mẫu dữ liệu từ HX711 bằng phương pháp bit-banging, sau đó lấy giá trị trung bình để giảm nhiễu.
+
+Khối lượng được tính theo công thức hiệu chuẩn:
+
+```text
+Weight = (Average - Tare) × CalibrationCoefficient
+```
+
+Giá trị sau đó được quy đổi sang đơn vị đang chọn (kg, g hoặc lbs).
+
+#### 4. Cập nhật hiển thị
+
+Sau khi tính toán, hệ thống đồng thời:
+
+- Hiển thị khối lượng trên LCD.
+- Hiển thị giá trị (kg) trên LED 7 đoạn.
+- Gửi thời gian và khối lượng qua UART để theo dõi bằng Hercules.
+
+#### 5. Quản lý dữ liệu RFID
+
+Khi phát hiện thẻ RFID:
+
+- Đọc UID của thẻ.
+- Tìm UID trong danh sách đã lưu.
+
+Nếu UID đã tồn tại:
+
+- Có tải trọng → cập nhật cân nặng và thời gian đo.
+- Không có tải trọng → hiển thị dữ liệu đã lưu trước đó.
+
+Nếu UID chưa tồn tại:
+
+- Có tải trọng → tạo bản ghi mới gồm UID, cân nặng và thời gian.
+- Không có tải trọng → thông báo chưa có dữ liệu.
+
+Nếu không phát hiện thẻ, hệ thống hiển thị trạng thái **"Đang chờ thẻ..."** và tiếp tục đo khối lượng theo thời gian thực.
+
+
+**9.Kết Luận**\
 Hệ thống cân thông minh RFID được thiết kế với các hàm chức năng rõ ràng:
 
 	Đo lường: HX711 với độ chính xác cao
@@ -941,16 +921,12 @@ Hệ thống cân thông minh RFID được thiết kế với các hàm chức 
 ### KẾT QUẢ
 
 - Hiển thị cân nặng trên LED 7 thanh
-![image](https://github.com/user-attachments/assets/120a02e9-63fb-435e-bae3-535e0e544a04)
+<img width="3024" height="4032" alt="Image" src="https://github.com/user-attachments/assets/0b88e75f-bfb3-4985-a5ea-8cc5a6f73a2c" />
+
 - Gửi dữ liệu cân nặng về máy tính, hiển thị trên Hercules
-  	+ Nếu không có thẻ
-  	  
-  	  ![image](https://github.com/user-attachments/assets/a8028080-c84a-4451-b938-65e9767cb10e)
-  	+ Nếu có thẻ
+  <img width="772" height="682" alt="Screenshot 2026-07-24 003239" src="https://github.com/user-attachments/assets/bfd88232-d75b-450d-b877-36b376c95746" />
+<img width="772" height="676" alt="Screenshot 2026-07-24 003153" src="https://github.com/user-attachments/assets/6c418fc2-c949-464e-bc56-e1cd929d9874" />
+<img width="772" height="675" alt="Screenshot 2026-07-24 003138" src="https://github.com/user-attachments/assets/229d646f-a7e7-4fdd-a8de-c679f948e36f" />
 
-  	  ![image](https://github.com/user-attachments/assets/9f214305-590d-4028-bd15-fde427d21c0b)
-	+ Nếu cân nặng không thay đổi thì hiển thị dữ liệu cũ
-
-	![image](https://github.com/user-attachments/assets/00909acb-81a4-4006-ba3d-814800e94cf1)
 
 
