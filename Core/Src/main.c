@@ -41,6 +41,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+I2C_HandleTypeDef hi2c3;
+
 RTC_HandleTypeDef hrtc;
 
 SPI_HandleTypeDef hspi4;
@@ -62,13 +64,72 @@ static void MX_SPI4_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_TIM6_Init(void);
+static void MX_I2C3_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+#include <stdio.h>
+#include <string.h>
 
+// 1. Tạo cấu trúc lưu thời gian
+typedef struct {
+    uint8_t Sec;
+    uint8_t Min;
+    uint8_t Hour;
+    uint8_t Day;
+    uint8_t Date;
+    uint8_t Month;
+    uint8_t Year;
+} Custom_RTC_TimeTypeDef;
+
+Custom_RTC_TimeTypeDef myTime;
+char uart_buf[100]; // Bộ đệm gửi UART
+
+// 2. Hàm chuyển đổi hệ cơ số
+uint8_t DEC2BCD(uint8_t val) {
+    return (val / 10 * 16) + (val % 10);
+}
+
+uint8_t BCD2DEC(uint8_t val) {
+    return (val / 16 * 10) + (val % 16);
+}
+
+// 3. Hàm cài đặt thời gian ban đầu cho DS1307
+void DS1307_SetTime(uint8_t sec, uint8_t min, uint8_t hour, uint8_t day, uint8_t date, uint8_t month, uint8_t year) {
+    uint8_t rtc_data[7];
+    rtc_data[0] = DEC2BCD(sec);
+    rtc_data[1] = DEC2BCD(min);
+    rtc_data[2] = DEC2BCD(hour);
+    rtc_data[3] = DEC2BCD(day);
+    rtc_data[4] = DEC2BCD(date);
+    rtc_data[5] = DEC2BCD(month);
+    rtc_data[6] = DEC2BCD(year);
+    // Ghi xuống I2C
+    HAL_I2C_Mem_Write(&hi2c3, 0xD0, 0x00, I2C_MEMADD_SIZE_8BIT, rtc_data, 7, 100);
+}
+
+// 4. Hàm đọc thời gian CÓ BẪY LỖI CHỐNG TREO MẠCH
+uint8_t DS1307_GetTime(void) {
+    uint8_t rtc_data[7];
+
+    // Đọc I2C với thời gian chờ tối đa 100ms. Nếu quá 100ms mà module không trả lời -> Thoát!
+    HAL_StatusTypeDef status = HAL_I2C_Mem_Read(&hi2c3, 0xD0, 0x00, I2C_MEMADD_SIZE_8BIT, rtc_data, 7, 100);
+
+    if (status == HAL_OK) {
+        myTime.Sec   = BCD2DEC(rtc_data[0] & 0x7F);
+        myTime.Min   = BCD2DEC(rtc_data[1]);
+        myTime.Hour  = BCD2DEC(rtc_data[2] & 0x3F);
+        myTime.Day   = BCD2DEC(rtc_data[3]);
+        myTime.Date  = BCD2DEC(rtc_data[4]);
+        myTime.Month = BCD2DEC(rtc_data[5]);
+        myTime.Year  = BCD2DEC(rtc_data[6]);
+        return 1; // Đọc thành công
+    }
+    return 0; // Đọc thất bại (lỏng dây, sai chân...)
+}
 /* USER CODE END 0 */
 
 /**
@@ -100,15 +161,20 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_RTC_Init();
-  MX_SPI4_Init();
+//  MX_RTC_Init();
+//  MX_SPI4_Init();
   MX_TIM2_Init();
   MX_USART1_UART_Init();
   MX_TIM6_Init();
+  MX_I2C3_Init();
   /* USER CODE BEGIN 2 */
 
-  HAL_TIM_Base_Start(&htim2); //khởi động timer 2 để dùng microDelay
-  HX7111_Init();
+  // NẾU MODULE MỚI MUA CHƯA CÓ GIỜ: Bỏ comment dòng bên dưới để nạp giờ cho nó 1 lần.
+    // (Định dạng: Giây, Phút, Giờ, Thứ, Ngày, Tháng, Năm)
+//     DS1307_SetTime(0, 30, 10, 2, 26, 7, 26);
+
+    sprintf(uart_buf, "\r\n=== HETHONG BAT DAU KHOI DONG ===\r\n");
+    HAL_UART_Transmit(&huart1, (uint8_t*)uart_buf, strlen(uart_buf), 1000);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -118,10 +184,23 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	float weight = HX711_GetWeight();
+	  // 1. Gọi hàm đọc RTC
+	      if (DS1307_GetTime() == 1) {
+	          // Đọc thành công -> In thời gian chuẩn
+	          sprintf(uart_buf, "Thoi gian: %02d/%02d/20%02d - %02d:%02d:%02d\r\n",
+	                  myTime.Date, myTime.Month, myTime.Year,
+	                  myTime.Hour, myTime.Min, myTime.Sec);
+	      } else {
+	          // Lỗi I2C -> In cảnh báo, không làm treo hệ thống
+	          sprintf(uart_buf, "[LOI I2C] Kiem tra lai day VCC(5V), SDA, SCL!\r\n");
+	      }
 
-	HAL_Delay(200);
-  }
+	      // 2. Gửi lên Hercules
+	      HAL_UART_Transmit(&huart1, (uint8_t*)uart_buf, strlen(uart_buf), 100);
+
+	      // 3. Delay 1 giây
+	      HAL_Delay(1000);
+	    }
   /* USER CODE END 3 */
 }
 
@@ -144,7 +223,7 @@ void SystemClock_Config(void)
   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE|RCC_OSCILLATORTYPE_LSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-  RCC_OscInitStruct.LSEState = RCC_LSE_ON;
+  RCC_OscInitStruct.LSEState = RCC_LSE_OFF;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = 4;
@@ -176,6 +255,54 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief I2C3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C3_Init(void)
+{
+
+  /* USER CODE BEGIN I2C3_Init 0 */
+
+  /* USER CODE END I2C3_Init 0 */
+
+  /* USER CODE BEGIN I2C3_Init 1 */
+
+  /* USER CODE END I2C3_Init 1 */
+  hi2c3.Instance = I2C3;
+  hi2c3.Init.ClockSpeed = 100000;
+  hi2c3.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c3.Init.OwnAddress1 = 0;
+  hi2c3.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c3.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c3.Init.OwnAddress2 = 0;
+  hi2c3.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c3.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+  */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c3, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+  */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c3, 0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C3_Init 2 */
+
+  /* USER CODE END I2C3_Init 2 */
+
 }
 
 /**
@@ -381,8 +508,8 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOE_CLK_ENABLE();
-  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
 

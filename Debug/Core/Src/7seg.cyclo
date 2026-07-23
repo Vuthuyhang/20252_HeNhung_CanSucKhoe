@@ -1,0 +1,2 @@
+../Core/Src/7seg.c:35:6:Set7SegDisplayValue	3
+../Core/Src/7seg.c:47:6:Run7SegDisplay	3
