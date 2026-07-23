@@ -1,25 +1,30 @@
 # BÁO CÁO BÀI TẬP LỚN HỆ NHÚNG - CÂN SỨC KHOẺ
 
-Dự án thiết kế một thiết bị cân kỹ thuật số sử dụng vi điều khiển STM32F429-DISC. Nó đọc dữ liệu từ một cảm biến lực thông qua ADC, xử lý các phép đo và hiển thị trọng lượng đã tính toán trên màn hình LED 7 thanh. Trọng lượng cũng được truyền qua UART về máy tính kết hợp với tính năng quét thẻ RFID để định danh người, phục vụ lưu trữ và theo dõi cân nặng theo thời gian.
+Dự án thiết kế một thiết bị cân kỹ thuật số sử dụng vi điều khiển STM32F429-DISC. Hệ thống đọc dữ liệu từ cảm biến lực (Loadcell) thông qua module chuyển đổi ADC **HX711**, xử lý tín hiệu để tính toán trọng lượng và hiển thị kết quả trên màn hình LED 7 thanh cũng như màn hình touch tích hợp trên kit. Người dùng có thể sử dụng nút nhấn B1 để chuyển đổi giữa các đơn vị đo. Dữ liệu trọng lượng được truyền về máy tính thông qua giao tiếp UART. Bên cạnh đó, hệ thống tích hợp module RFID RC522 để quét thẻ, định danh người sử dụng và kết hợp với đồng hồ thời gian thực (RTC) sử dụng chân VBAT để ghi nhận thời gian đo ngay cả khi mất nguồn. Nhờ đó, hệ thống có khả năng lưu trữ và theo dõi lịch sử cân nặng của từng người theo thời gian, phục vụ việc quản lý và đánh giá sự thay đổi cân nặng một cách thuận tiện.
+
 
 ## GIỚI THIỆU
 
-__Đề bài__: Thiết kế cân đo trọng lượng người, hiển thị trên màn hình LED 7 thanh và gửi kết quả về PC qua UART. Tính năng mở rộng: ghét nổi RC522 để quét thẻ RFID, định danh người cân, lưu trữ và theo dõi cân nặng theo thời gian
+__Đề bài__: Thiết kế chế tạo cân đo trọng lượng của người, hiển thị trên màn hình LED 7 thanh + gửi kết quả về PC qua UART.
+Mở rộng: quét thẻ RFID để định danh người cân, lưu trữ và theo dõi cân nặng theo thời gian. Ghép nối RC522 để quét thẻ, và built-in Real-time clock (có pin vào chân VBAT) để giữ thời gian khi mạch mất điện.
+Hiển thị khối lượng lên màn hình touch
+Bấm nút B1 để chuyển đơn vị đo: kg, g, lbs
 
 __Sản phẩm:__
-1. Thiết kế chế tạo cân đo trọng lượng của người, hiển thị trên màn hình LED 7 thanh
+1. Thiết kế chế tạo cân đo trọng lượng của người, hiển thị trên màn hình LED 7 thanh và màn hình touch
 2. Gửi kết quả cân nặng về máy tính (PC) thông qua UART.
 3. Quét thẻ RFID để định danh người cân, lưu trữ và theo dõi cân nặng theo thời gian
 
 ## TÁC GIẢ
 
-- Tên nhóm: 10h37
+- Tên nhóm: Thiếu 1 người
 - Thành viên trong nhóm
   |STT|Họ tên|MSSV|Công việc|
   |--:|--|--|--|
-  |1|Lê Văn Được|20225296|Phát triển cảm biến và thuật toán cân: SPI đọc dữ liệu từ HX711, viết hàm getHX711(), microDelay() và weigh(); Tối ưu và kiểm thử phần đọc/hiển thị dữ liệu từ load cell, Unit-test thuật toán đo để xác nhận độ ổn định, không lỗi tràn; Vẽ sơ đồ schematic|
-  |2|Nguyễn Hoàng Giang|20225125|Hiển thị LED 7‑segment; Cấu hình Timer 6 (MX_TIM6_Init) và callback HAL_TIM_PeriodElapsedCallback cho multiplexing LED; Kiểm tra hiển thị đúng số, không bị flicker, ánh sáng đều; Viết báo cáo|
-  |3|Hoàng Trung Hải|20225307|Cấu hình MX_SPI4_Init để kết nối với RC522 qua SPI; Viết hàm đọc card (TM_MFRC522_Check) và xử lý logic: Cập nhật DuLieuCanNang nếu tồn tại và thêm mới nếu là thẻ mới; Cấu hình UART1 (MX_USART1_UART_Init) để truyền kết quả cân qua máy tính sử dụng Hercules|
+  |1|Vũ Thúy Hằng|20225296|Phát triển cảm biến và thuật toán cân: SPI đọc dữ liệu từ HX711, viết hàm getHX711(), microDelay() và weigh(); Tối ưu và kiểm thử phần đọc/hiển thị dữ liệu từ load cell, Unit-test thuật toán đo để xác nhận độ ổn định, không lỗi tràn; Vẽ sơ đồ schematic|
+  |2|Ngô Minh Thu|20225125|Hiển thị LED 7‑segment; Cấu hình Timer 6 (MX_TIM6_Init) và callback HAL_TIM_PeriodElapsedCallback cho multiplexing LED; Kiểm tra hiển thị đúng số, không bị flicker, ánh sáng đều; Viết báo cáo|
+  |3|Nguyễn Nhật Minh|20225307|Cấu hình MX_SPI4_Init để kết nối với RC522 qua SPI; Viết hàm đọc card (TM_MFRC522_Check) và xử lý logic: Cập nhật DuLieuCanNang nếu tồn tại và thêm mới nếu là thẻ mới; Cấu hình UART1 (MX_USART1_UART_Init) để truyền kết quả cân qua máy tính sử dụng Hercules|
+  |4|Nguyễn Thị Thùy Linh |20225307|Cấu hình MX_SPI4_Init để kết nối với RC522 qua SPI; Viết hàm đọc card (TM_MFRC522_Check) và xử lý logic: Cập nhật DuLieuCanNang nếu tồn tại và thêm mới nếu là thẻ mới; Cấu hình UART1 (MX_USART1_UART_Init) để truyền kết quả cân qua máy tính sử dụng Hercules|
 
 ## MÔI TRƯỜNG HOẠT ĐỘNG
 
@@ -28,6 +33,7 @@ __Sản phẩm:__
   + **STM32F429I Discovery kit**
   + **Module HX711:** bộ chuyển đổi tín hiệu ADC để đọc tín hiệu từ cảm biến lực, chuyển đổi lực tác động thành tín hiệu điện
   + **Module RC522:** sử dụng để đọc và ghi dữ liệu cho thẻ RFID / NFC
+  + **Module Tiny RTC:** Cung cấp thông tin thời gian thực (ngày, giờ, phút, giây) và duy trì thời gian nhờ pin dự phòng khi hệ thống mất nguồn, phục vụ việc ghi nhận thời điểm đo cân nặng.
 - **Phần mềm và công cụ phát triển**
   + **STM32CubeIDE:** môi trường phát triển tích hợp (IDE) dùng để lập trình và debug vi điều khiển STM32.
   + **Hercules:** giao tiếp, kiểm tra và mô phỏng các kết nối nối tiếp (UART)
@@ -45,10 +51,13 @@ __Sản phẩm:__
 
 | Thành phần              | Vai trò chính                                                                 |
 |--------------------------|------------------------------------------------------------------------------|
-| **Thiết bị IoT (STM32 + Load Cell + RC522)** | Thiết bị nhúng trung tâm, có nhiệm vụ đọc giá trị cân nặng, nhận dạng người dùng qua RFID, hiển thị và gửi dữ liệu |
+| **Thiết bị IoT (STM32 + Load Cell + RC522 )** | Thiết bị nhúng trung tâm, có nhiệm vụ đọc giá trị cân nặng, nhận dạng người dùng qua RFID, hiển thị và gửi dữ liệu |
 | **Load Cell + HX711**   | Cảm biến đo trọng lượng, chuyển tín hiệu analog sang số (digital) qua HX711 |
 | **Module RFID RC522**   | Quét thẻ RFID, xác định danh tính người cân để lưu thông tin cá nhân|
+| **RTC**   | Cung cấp thông tin thời gian thực (ngày, giờ, phút, giây) phục vụ ghi nhận thời điểm đo và theo dõi lịch sử cân nặng; vẫn duy trì thời gian khi mất nguồn nhờ pin dự phòng.|
 | **LED 7 đoạn**          | Hiển thị trọng lượng đã đo được một cách trực quan|
+| **Màn hình Touch LCD**       | Hiển thị chi tiết thông tin như khối lượng, đơn vị đo, UID người dùng; hỗ trợ giao diện trực quan.|
+| **Nút B1**       | Cho phép người dùng chuyển đổi giữa các đơn vị đo kg, g và lbs.|
 | **PC (Máy trạm)**        | Nhận dữ liệu từ STM32 qua UART, có thể hiển thị lên giao diện terminal (VD: Hercules)|
 
   
