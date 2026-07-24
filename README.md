@@ -182,7 +182,7 @@ Trong khi đó, **LED 7 đoạn luôn hiển thị giá trị theo đơn vị ki
 
 ### 8. Kết nối RTC (DS1307 / DS3231) với STM32
 
-Module Real-Time Clock (Tiny RTC) cung cấp thông tin thời gian thực (ngày, tháng, năm, giờ, phút, giây) cho hệ thống[cite: 2]. Module giao tiếp với STM32F429I-DISC1 thông qua chuẩn ngoại vi **I2C3** ở tốc độ 100 kHz[cite: 2].
+Module Real-Time Clock (Tiny RTC) cung cấp thông tin thời gian thực (ngày, tháng, năm, giờ, phút, giây) cho hệ thống. Module giao tiếp với STM32F429I-DISC1 thông qua chuẩn ngoại vi **I2C3** ở tốc độ 100 kHz.
 
 | Tiny RTC | STM32F429I-DISC1 | Ghi chú |
 |----------|------------------|---------|
@@ -202,8 +202,8 @@ Cấu hình I2C3:
 Trong quá trình hoạt động:
 
 - **PA8 (SCL)** và **PC9 (SDA)** đảm nhận vai trò truyền nhận dữ liệu thời gian giữa vi điều khiển và module RTC qua chuỗi xung I2C.
-- Dữ liệu thời gian đọc về ở dạng **BCD (Binary-Coded Decimal)** được vi điều khiển giải mã sang số nguyên Decimal và gắn vào bản ghi cân nặng của người dùng[cite: 2].
-- Khi ngắt nguồn cấp chính (VCC), pin cúc áo **CR2032** kích hoạt để duy trì bộ đếm thời gian bên trong chip RTC[cite: 2].
+- Dữ liệu thời gian đọc về ở dạng **BCD (Binary-Coded Decimal)** được vi điều khiển giải mã sang số nguyên Decimal và gắn vào bản ghi cân nặng của người dùng.
+- Khi ngắt nguồn cấp chính (VCC), pin cúc áo **CR2032** kích hoạt để duy trì bộ đếm thời gian bên trong chip RTC.
 
 ## TÍCH HỢP HỆ THỐNG
 
