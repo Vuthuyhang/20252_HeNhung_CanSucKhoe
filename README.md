@@ -599,8 +599,67 @@ int weightToLed(float displayWeight)
 */
 ```
 
-**2. Các hàm điều khiển RTC (DS1307 / DS3231)**
-2.1. Các hàm bổ trợ chuyển đổi BCD
+**2. Các hàm điều khiển RC522**
+
+__Hàm TM_MFRC522_Init():__
+- Mục đích: Khởi tạo phần cứng module RC522 (cấu hình các thanh ghi nội bộ, thiết lập tần số hoạt động và bật ăng-ten phát sóng RF).
+- Tham số: Không có (void).
+- Chức năng: Thiết lập mức điện áp ban đầu cho chân Chip Select (`MFRC522_CS_HIGH` - PE4 = 1). Bắn lệnh Soft-Reset bằng cách ghi `PCD_RESETPHASE` vào thanh ghi `MFRC522_REG_COMMAND`. Khởi tạo các thanh ghi định thời `T_MODE`, `T_PRESCALER` và công suất sóng RF `RF_CFG`. Bật ăng-ten phát sóng nội bộ qua hàm `TM_MFRC522_AntennaOn()`.
+
+__Hàm TM_MFRC522_Check():__
+- Mục đích: Kiểm tra sự xuất hiện của thẻ RFID trong vùng quét và trích xuất chuỗi 5 bytes UID của thẻ.
+- Tham số: Con trỏ `uint8_t *id` (Bộ đệm 5 bytes để nhận mã UID).
+- Chức năng: Tự động gọi `TM_MFRC522_Request(PICC_REQIDL, id)` để quét phát hiện thẻ rảnh. Nếu tìm thấy thẻ (`MI_OK`), tự động gọi `TM_MFRC522_Anticoll(id)` để giải quyết chống trùng lặp và lấy 5 bytes UID. Gửi lệnh `TM_MFRC522_Halt()` để đưa thẻ về trạng thái nghỉ, tránh việc quét lặp lại liên tục trong khoảng thời gian ngắn.
+
+__Hàm TM_MFRC522_Request():__
+- Mục đích: Phát xung sóng radio (RF) để tìm kiếm các thẻ RFID đang nằm trong vùng phủ sóng của đầu đọc.
+- Tham số: `uint8_t reqMode` (Chế độ tìm kiếm `PICC_REQIDL` hoặc `PICC_REQALL`), con trỏ `uint8_t *TagType` (Bộ đệm nhận thông tin loại thẻ).
+- Chức năng: Cấu hình thanh ghi `BitFramingReg` = 0x07. Truyền lệnh `reqMode` vào bộ đệm FIFO của chip thông qua hàm `TM_MFRC522_ToCard(PCD_TRANSCEIVE, ...)`. Kiểm tra số bit dữ liệu nhận về từ thẻ, nếu đủ 16 bits thì trả về `MI_OK`.
+
+__Hàm TM_MFRC522_Anticoll():__
+- Mục đích: Thực hiện thuật toán chống trùng lặp tín hiệu (Anti-collision) khi có nhiều thẻ cùng xuất hiện, đồng thời trích xuất 5 bytes mã UID duy nhất của thẻ.
+- Tham số: Con trỏ `uint8_t *serNum` (Bộ đệm nhận 5 bytes UID).
+- Chức năng: Khởi tạo thanh ghi `BitFramingReg` = 0x00. Nạp mảng mã lệnh anti-collision (`PICC_ANTICOLL`, 0x20) vào FIFO và gọi `TM_MFRC522_ToCard()`. Đọc 5 bytes dữ liệu trả về từ thẻ. Thực hiện phép toán Checksum XOR 4 byte đầu: `serNum[0] ^ serNum[1] ^ serNum[2] ^ serNum[3]`. So sánh với `serNum[4]`, nếu khớp trả về `MI_OK`, ngược lại trả về `MI_ERR`.
+
+__Hàm TM_MFRC522_ToCard():__
+- Mục đích: Hàm lõi thực hiện truyền chuỗi dữ liệu/mã lệnh từ STM32 vào FIFO của RC522, kích hoạt sóng RF để gửi sang thẻ và chờ nhận phản hồi từ thẻ về.
+- Tham số: `uint8_t command` (Mã lệnh thi hành như `PCD_TRANSCEIVE`, `PCD_AUTHENT`), con trỏ `uint8_t *sendData` (Dữ liệu gửi), `uint8_t sendLen` (Độ dài gửi), con trỏ `uint8_t *backData` (Bộ đệm nhận phản hồi), con trỏ `uint16_t *backLen` (Số bit thực tế nhận về).
+- Chức năng: Bật các ngắt tương ứng trên `CommIEnReg`. Xóa bộ đệm FIFO và cờ ngắt cũ. Ghi mảng `sendData` vào `FIFODataReg`. Đưa lệnh vào `CommandReg` để kích hoạt giao tiếp radio. Chạy vòng lặp bận (Busy-wait i = 2000) chờ cờ ngắt báo hoàn thành hoặc hết thời gian chờ (Timeout). Nếu nhận thành công, tính toán độ dài và chép dữ liệu từ FIFO ra `backData`.
+
+__Hàm TM_MFRC522_SelectTag():__
+- Mục đích: Lựa chọn một thẻ RFID cụ thể (dựa vào 5 bytes UID) để thiết lập phiên làm việc chính thức trước khi thực hiện các lệnh đọc/ghi bộ nhớ thẻ.
+- Tham số: Con trỏ `uint8_t *serNum` (Chứa 5 bytes UID của thẻ cần chọn).
+- Chức năng: Tạo gói tin gồm lệnh `PICC_SELECTTAG` (0x70), 5 bytes `serNum` và 2 bytes CRC (tính qua `TM_MFRC522_CalculateCRC`). Gửi gói tin qua `TM_MFRC522_ToCard()`. Kiểm tra số bit trả về, nếu bằng 24 bits (0x18) nghĩa là thẻ đã được chọn thành công.
+
+__Hàm TM_MFRC522_Auth():__
+- Mục đích: Xác thực mật khẩu (Key A hoặc Key B) của một Sector trên thẻ MIFARE 1K trước khi cho phép đọc/ghi dữ liệu vào Sector đó.
+- Tham số: `uint8_t authMode` (`PICC_AUTHENT1A` hoặc `PICC_AUTHENT1B`), `uint8_t BlockAddr` (Địa chỉ Block từ 0 đến 63), con trỏ `uint8_t *Sectorkey` (6 bytes mật khẩu), con trỏ `uint8_t *serNum` (4 bytes UID).
+- Chức năng: Đóng gói dữ liệu gồm `authMode`, `BlockAddr`, 6 bytes `Sectorkey` và 4 bytes `serNum`. Gửi gói dữ liệu qua `TM_MFRC522_ToCard(PCD_AUTHENT, ...)`. Kiểm tra bit 3 (0x08) trên thanh ghi `Status2Reg`, nếu bằng 1 tức là đã xác thực thành công.
+
+__Hàm TM_MFRC522_Read():__
+- Mục đích: Đọc 16 bytes dữ liệu từ một Block chỉ định trên thẻ MIFARE.
+- Tham số: `uint8_t blockAddr` (Địa chỉ Block cần đọc), con trỏ `uint8_t *recvData` (Bộ đệm chứa dữ liệu đọc về, yêu cầu độ rộng tối thiểu 18 bytes).
+- Chức năng: Chuẩn bị gói lệnh gồm `PICC_READ` + `blockAddr` + 2 bytes CRC. Gửi lệnh tới thẻ thông qua `TM_MFRC522_ToCard(PCD_TRANSCEIVE, ...)`. Kiểm tra độ dài dữ liệu trả về, nếu đủ 16 bytes dữ liệu chính + 2 bytes CRC thì copy vào `recvData` và trả về `MI_OK`.
+
+__Hàm TM_MFRC522_Write():__
+- Mục đích: Ghi 16 bytes dữ liệu mới vào một Block trên thẻ MIFARE.
+- Tham số: `uint8_t blockAddr` (Địa chỉ Block cần ghi), con trỏ `uint8_t *writeData` (Mảng 16 bytes dữ liệu cần ghi).
+- Chức năng: Gửi lệnh `PICC_WRITE` + `blockAddr` + 2 bytes CRC. Chờ phản hồi ACK (4 bits) từ thẻ. Nếu nhận phản hồi ACK hợp lệ, tiếp tục gửi 16 bytes `writeData` + 2 bytes CRC. Chờ phản hồi ACK xác nhận ghi thành công từ thẻ để trả về `MI_OK`.
+
+__Hàm TM_MFRC522_Halt():__
+- Mục đích: Gửi lệnh ngắt phiên làm việc, chuyển thẻ RFID sang trạng thái chờ (Sleep/Idle).
+- Tham số: Không có (void).
+- Chức năng: Chuẩn bị gói dữ liệu gồm mã lệnh `PICC_HALT` (0x50, 0x00) + 2 bytes CRC. Gửi gói dữ liệu qua `TM_MFRC522_ToCard(PCD_TRANSCEIVE, ...)` để thẻ chuyển sang chế độ tạm nghỉ.
+
+__Các hàm thao tác SPI Low-Level:__
+- `TM_MFRC522_WriteRegister(addr, val)`: Kéo CS (PE4) xuống LOW, gửi địa chỉ `(addr << 1) & 0x7E` qua `HAL_SPI_Transmit`, gửi byte `val`, thả CS lên HIGH.
+- `TM_MFRC522_ReadRegister(addr)`: Kéo CS xuống LOW, gửi địa chỉ `((addr << 1) & 0x7E) | 0x80`, nhận 1 byte qua `HAL_SPI_Receive`, thả CS lên HIGH.
+- `TM_MFRC522_SetBitMask(reg, mask)`: Đọc giá trị thanh ghi, thực hiện phép `OR` với `mask` để bật bit chỉ định rồi ghi lại.
+- `TM_MFRC522_ClearBitMask(reg, mask)`: Đọc giá trị thanh ghi, thực hiện phép `AND NOT` với `mask` để xóa bit chỉ định rồi ghi lại.
+
+**3. Các hàm điều khiển RTC (DS1307 / DS3231)**
+
+3.1. Các hàm bổ trợ chuyển đổi BCD
 ```cpp
 uint8_t BCD2DEC(uint8_t val) { return ((val / 16 * 10) + (val % 16)); } uint8_t DEC2BCD(uint8_t val) { return ((val / 10 * 16) + (val % 10)); } 
 /*
@@ -614,7 +673,7 @@ uint8_t BCD2DEC(uint8_t val) { return ((val / 16 * 10) + (val % 16)); } uint8_t 
 Hàm DEC2BCD(val) (Chuyển từ Decimal sang BCD).
  */
 ```
-2.2. Hàm RTC_SetTime()
+3.2. Hàm RTC_SetTime()
 ```cpp
 void RTC_SetTime(uint8_t sec, uint8_t min, uint8_t hour, uint8_t date, uint8_t month, uint8_t year) { uint8_t set_time[7] = { DEC2BCD(sec), DEC2BCD(min), DEC2BCD(hour), DEC2BCD(1), // Mặc định thứ trong tuần = 1 DEC2BCD(date), DEC2BCD(month), DEC2BCD(year) }; HAL_I2C_Mem_Write(&hi2c3, RTC_DEV_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, set_time, 7, 100); } 
 /*
@@ -627,7 +686,7 @@ void RTC_SetTime(uint8_t sec, uint8_t min, uint8_t hour, uint8_t date, uint8_t m
   . HOẠT ĐỘNG/CHỨC NĂNG: Chuyển đổi toàn bộ các tham số thời gian từ Decimal sang BCD bằng hàm DEC2BCD(). Lưu chuỗi 7 bytes dữ liệu vào mảng set_time. Gọi hàm HAL_I2C_Mem_Write() gửi mảng dữ liệu đến thanh ghi 0x00 của RTC qua bus hi2c3.
  */
 ```
-2.3. Hàm RTC_SetTimeFromCompiler()
+3.3. Hàm RTC_SetTimeFromCompiler()
 ```cpp
 void RTC_SetTimeFromCompiler(void) 
 {
@@ -662,7 +721,7 @@ void RTC_SetTimeFromCompiler(void)
   . HOẠT ĐỘNG/CHỨC NĂNG: Trích xuất chuỗi ngày/tháng/năm từ macro __DATE__ và giờ/phút/giây từ macro __TIME__ của GCC. Sử dụng sscanf() để phân tách chuỗi thành các giá trị số nguyên. Tra cứu chuỗi tên tháng tiếng Anh (Jan–Dec) để đổi sang số tháng tương ứng (1–12). Gọi RTC_SetTime() để nạp thời gian tự động vào RTC.
  */
 ```
-2.4. Hàm RTC_GetTime()
+3.4. Hàm RTC_GetTime()
 ```cpp
 void RTC_GetTime(RTC_Time *time) 
 {
@@ -695,9 +754,9 @@ void RTC_GetTime(RTC_Time *time)
 
 
 
- **3. Hàm Timer và ngắt**
+ **4. Hàm Timer và ngắt**
 
-**3.1. Hàm `MX_TIM6_Init(void)`**
+**4.1. Hàm `MX_TIM6_Init(void)`**
 
 ```cpp
 /*
@@ -728,7 +787,7 @@ void RTC_GetTime(RTC_Time *time)
 
 ---
 
-**3.2. Hàm `HAL_TIM_PeriodElapsedCallback()`**
+**4.2. Hàm `HAL_TIM_PeriodElapsedCallback()`**
 
 ```cpp
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
@@ -765,8 +824,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
       tiếp hàm này trong vòng lặp chính.
 */
 ```
-**4.Struct dữ liệu**\
-4.1 Struct DuLieuCanNang
+**5.Struct dữ liệu**\
+5.1 Struct DuLieuCanNang
 ```cpp
 typedef struct {
     int stt;              // Số thứ tự bản ghi
@@ -783,7 +842,7 @@ typedef struct {
             timestamp: Thời gian đo lấy từ RTC
 */
 ```
-4.2. Struct RTC_Time
+5.2. Struct RTC_Time
 ```cpp
 typedef struct {
     uint8_t sec, min, hour, date, month, year;
@@ -801,8 +860,8 @@ typedef struct {
 ```
 
 
-**5.Constants và biến toàn cục**\
-5.1.Các hằng số hiệu chuẩn
+**6.Constants và biến toàn cục**\
+6.1.Các hằng số hiệu chuẩn
 
 ```c
 int32_t tare = 7723582;          // Giá trị cân không tải
@@ -816,7 +875,7 @@ float knownHX71_raw = -25760.0f;        // Giá trị ADC tương ứng
 	knownHX711: Giá trị ADC đo được với vật chuẩn
 */
 ```
-5.2.Định nghĩa pin HX711
+6.2.Định nghĩa pin HX711
 ```c
 #define SCK_PIN   GPIO_PIN_0      // Pin clock
 #define SCK_PORT  GPIOE
@@ -827,10 +886,10 @@ float knownHX71_raw = -25760.0f;        // Giá trị ADC tương ứng
   . Ý NGHĨA: Mapping phần cứng cho việc giao tiếp với load cell amplifier
 */
 ```
-**6.Khối khởi tạo màn hình LCD (SPI5 và ILI9341)**\
+**7.Khối khởi tạo màn hình LCD (SPI5 và ILI9341)**\
 
 
-6.1. Các hàm điều khiển hiển thị LCD
+7.1. Các hàm điều khiển hiển thị LCD
 
 
 ```c
